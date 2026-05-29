@@ -17,6 +17,12 @@ pub fn run() {
             sql: include_str!("../migrations/002_resource_credentials.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 3,
+            description: "add_resource_pinned",
+            sql: include_str!("../migrations/003_resource_pinned.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()

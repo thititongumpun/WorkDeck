@@ -326,7 +326,7 @@ function toResource(resource: ResourceRow): Resource {
     name: resource.name,
     detail: resource.detail,
     type: resource.type,
-    pinned: Boolean(resource.pinned),
+    pinned: toBoolean(resource.pinned),
     authType: resource.auth_type,
     username: resource.username,
     keyPath: resource.key_path,
@@ -342,4 +342,20 @@ function toResource(resource: ResourceRow): Resource {
     createdAt: resource.created_at,
     updatedAt: resource.updated_at,
   };
+}
+
+function toBoolean(value: boolean | number | string | null | undefined) {
+  if (typeof value === "boolean") {
+    return value;
+  }
+
+  if (typeof value === "number") {
+    return value !== 0;
+  }
+
+  if (typeof value === "string") {
+    return ["true", "t", "1", "yes", "y"].includes(value.toLowerCase());
+  }
+
+  return false;
 }

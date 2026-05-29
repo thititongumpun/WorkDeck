@@ -223,7 +223,7 @@ export class PostgresProjectRepository implements ProjectRepository {
     }
 
     await db.execute(
-      "UPDATE resources SET type = $1, name = $2, detail = $3, pinned = COALESCE($4, pinned), auth_type = $5, username = $6, key_path = $7, encrypted_secret = $8, secret_iv = $9, secret_salt = $10, secret_kdf_iterations = $11, updated_at = $12 WHERE id = $13",
+      "UPDATE resources SET type = $1, name = $2, detail = $3, pinned = COALESCE($4::BOOLEAN, pinned), auth_type = $5, username = $6, key_path = $7, encrypted_secret = $8, secret_iv = $9, secret_salt = $10, secret_kdf_iterations = $11, updated_at = $12 WHERE id = $13",
       [
         input.type,
         input.name,
@@ -367,7 +367,7 @@ function toResource(resource: ResourceRow): Resource {
     name: resource.name,
     detail: resource.detail,
     type: resource.type,
-    pinned: Boolean(resource.pinned),
+    pinned: toBoolean(resource.pinned),
     authType: resource.auth_type,
     username: resource.username,
     keyPath: resource.key_path,
@@ -383,4 +383,20 @@ function toResource(resource: ResourceRow): Resource {
     createdAt: resource.created_at,
     updatedAt: resource.updated_at,
   };
+}
+
+function toBoolean(value: boolean | number | string | null | undefined) {
+  if (typeof value === "boolean") {
+    return value;
+  }
+
+  if (typeof value === "number") {
+    return value !== 0;
+  }
+
+  if (typeof value === "string") {
+    return ["true", "t", "1", "yes", "y"].includes(value.toLowerCase());
+  }
+
+  return false;
 }
