@@ -2,6 +2,7 @@ import { appConfigDir } from "@tauri-apps/api/path";
 import { isTauri } from "@tauri-apps/api/core";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { getConfiguredDatabaseKind, getConfiguredDatabaseUrl } from "../repositories/projectRepository";
+import { redactDatabaseUrl } from "./databaseConfig";
 
 export async function getDatabasePath() {
   const configuredUrl = getConfiguredDatabaseUrl();
@@ -28,18 +29,4 @@ export async function copyText(value: string) {
   }
 
   await navigator.clipboard.writeText(value);
-}
-
-function redactDatabaseUrl(value: string) {
-  try {
-    const url = new URL(value);
-
-    if (url.password) {
-      url.password = "****";
-    }
-
-    return url.toString();
-  } catch {
-    return value;
-  }
 }

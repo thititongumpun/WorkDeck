@@ -1,4 +1,5 @@
 import {
+  AlertTriangle,
   Activity,
   AppWindow,
   BookOpenText,
@@ -28,6 +29,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { ChangeEvent, FormEvent, KeyboardEvent, ReactNode, useEffect, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { create } from "zustand";
 import { clsx } from "clsx";
 import {
@@ -42,9 +44,17 @@ import {
   useUpdateResource,
 } from "./hooks/useProjects";
 import { copyText, getDatabaseKind, getDatabasePath } from "./services/appSettings";
+import {
+  isPostgresUrl,
+  readDatabaseConfig,
+  redactDatabaseUrl,
+  saveDatabaseConfig,
+  type DatabaseConfig,
+} from "./services/databaseConfig";
 import { activateResource } from "./services/resourceActions";
 import { pickFilePath, pickFolderPath } from "./services/filePicker";
 import { decryptSecret, encryptSecret } from "./services/masterSecret";
+import { getProjectRepository, resetProjectRepository } from "./repositories/projectRepository";
 import type { AuthType, EncryptedSecret, Project, ProjectStatus, Resource, ResourceType, SearchResult } from "./domain/workspace";
 
 type ResourceFormInput = {
@@ -106,6 +116,7 @@ const resourceTypes: ResourceType[] = ["file", "url", "server", "database", "com
 const projectStatuses: ProjectStatus[] = ["active", "paused", "archived"];
 
 export function App() {
+  const queryClient = useQueryClient();
   const activeSection = useWorkspaceStore((state) => state.activeSection);
   const selectedProjectId = useWorkspaceStore((state) => state.selectedProjectId);
   const resourceFilter = useWorkspaceStore((state) => state.resourceFilter);
@@ -169,6 +180,23 @@ export function App() {
     const project = await createProject.mutateAsync(input);
     setSelectedProjectId(project.id);
     setIsCreateProjectOpen(false);
+  }
+
+  async function handleDatabaseConfigChange(config: DatabaseConfig) {
+    const previousConfig = readDatabaseConfig();
+    saveDatabaseConfig(config);
+    resetProjectRepository();
+
+    try {
+      await getProjectRepository().getAll();
+      setSelectedProjectId("");
+      queryClient.removeQueries();
+      await queryClient.invalidateQueries();
+    } catch (error) {
+      saveDatabaseConfig(previousConfig);
+      resetProjectRepository();
+      throw error;
+    }
   }
 
   async function handleUpdateProject(input: { name: string; description: string; status: ProjectStatus }) {
@@ -609,6 +637,7 @@ export function App() {
         isImporting={replaceWorkspace.isPending}
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
+        onDatabaseConfigChange={handleDatabaseConfigChange}
         onImport={(nextProjects) => replaceWorkspace.mutateAsync(nextProjects)}
         projects={projects}
         theme={theme}
@@ -1546,6 +1575,7 @@ function SettingsDialog({
   projects,
   theme,
   onClose,
+  onDatabaseConfigChange,
   onImport,
   onToggleTheme,
 }: {
@@ -1555,11 +1585,15 @@ function SettingsDialog({
   projects: Project[];
   theme: ThemeMode;
   onClose: () => void;
+  onDatabaseConfigChange: (config: DatabaseConfig) => Promise<void>;
   onImport: (projects: Project[]) => Promise<void>;
   onToggleTheme: () => void;
 }) {
   const [databasePath, setDatabasePath] = useState("");
   const [databaseKind, setDatabaseKind] = useState("");
+  const [databaseConfig, setDatabaseConfig] = useState<DatabaseConfig>(() => readDatabaseConfig());
+  const [databaseSaveStatus, setDatabaseSaveStatus] = useState("");
+  const [databaseError, setDatabaseError] = useState("");
   const [copyStatus, setCopyStatus] = useState("");
   const [importStatus, setImportStatus] = useState("");
 
@@ -1570,6 +1604,9 @@ function SettingsDialog({
 
     void getDatabasePath().then(setDatabasePath);
     setDatabaseKind(getDatabaseKind());
+    setDatabaseConfig(readDatabaseConfig());
+    setDatabaseSaveStatus("");
+    setDatabaseError("");
     setCopyStatus("");
     setImportStatus("");
   }, [isOpen]);
@@ -1577,6 +1614,30 @@ function SettingsDialog({
   async function handleCopyDatabasePath() {
     await copyText(databasePath);
     setCopyStatus("Copied");
+  }
+
+  async function handleSaveDatabaseConfig() {
+    const nextConfig =
+      databaseConfig.kind === "postgres"
+        ? { kind: "postgres" as const, postgresUrl: databaseConfig.postgresUrl.trim() }
+        : { kind: "sqlite" as const, postgresUrl: "" };
+
+    if (nextConfig.kind === "postgres" && !isPostgresUrl(nextConfig.postgresUrl)) {
+      setDatabaseError("Use a postgres:// or postgresql:// connection URL.");
+      setDatabaseSaveStatus("");
+      return;
+    }
+
+    try {
+      setDatabaseError("");
+      await onDatabaseConfigChange(nextConfig);
+      setDatabaseKind(nextConfig.kind === "postgres" ? "PostgreSQL" : "SQLite");
+      setDatabasePath(nextConfig.kind === "postgres" ? redactDatabaseUrl(nextConfig.postgresUrl) : await getDatabasePath());
+      setDatabaseSaveStatus("Saved. Workspace reloaded.");
+    } catch (error) {
+      setDatabaseError(error instanceof Error ? error.message : "Could not connect to database.");
+      setDatabaseSaveStatus("");
+    }
   }
 
   function handleExport() {
@@ -1632,6 +1693,47 @@ function SettingsDialog({
               </button>
             </div>
             {copyStatus ? <p className="text-sm text-success">{copyStatus}</p> : null}
+            <div className="grid gap-3 rounded-lg border border-base-300 bg-base-200/60 p-3">
+              <div className="flex flex-wrap gap-2">
+                <button
+                  className={clsx("btn rounded-md", databaseConfig.kind === "sqlite" ? "btn-primary" : "btn-outline")}
+                  onClick={() => setDatabaseConfig({ kind: "sqlite", postgresUrl: "" })}
+                  type="button"
+                >
+                  <HardDrive size={17} />
+                  SQLite
+                </button>
+                <button
+                  className={clsx("btn rounded-md", databaseConfig.kind === "postgres" ? "btn-primary" : "btn-outline")}
+                  onClick={() => setDatabaseConfig({ ...databaseConfig, kind: "postgres" })}
+                  type="button"
+                >
+                  <Database size={17} />
+                  PostgreSQL
+                </button>
+              </div>
+              {databaseConfig.kind === "postgres" ? (
+                <input
+                  className="input input-bordered rounded-md"
+                  onChange={(event) => setDatabaseConfig({ kind: "postgres", postgresUrl: event.target.value })}
+                  placeholder="postgres://user:password@host:5432/workdeck"
+                  type="password"
+                  value={databaseConfig.postgresUrl}
+                />
+              ) : null}
+              <div className="flex flex-wrap items-center gap-2">
+                <button className="btn btn-primary rounded-md" onClick={handleSaveDatabaseConfig} type="button">
+                  Save database
+                </button>
+                {databaseError ? (
+                  <p className="flex items-center gap-1 text-sm text-error">
+                    <AlertTriangle size={15} />
+                    {databaseError}
+                  </p>
+                ) : null}
+                {databaseSaveStatus ? <p className="text-sm text-success">{databaseSaveStatus}</p> : null}
+              </div>
+            </div>
           </section>
 
           <section className="grid gap-2">

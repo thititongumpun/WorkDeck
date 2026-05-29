@@ -1,5 +1,6 @@
 import { isTauri } from "@tauri-apps/api/core";
 import type { ProjectRepository } from "../domain/workspace";
+import { getActiveDatabaseKind, getActiveDatabaseUrl } from "../services/databaseConfig";
 import { MemoryProjectRepository } from "./memoryProjectRepository";
 import { PostgresProjectRepository } from "./postgresProjectRepository";
 import { SQLiteProjectRepository } from "./sqliteProjectRepository";
@@ -15,17 +16,15 @@ export function getProjectRepository(): ProjectRepository {
 }
 
 export function getConfiguredDatabaseUrl() {
-  return import.meta.env.VITE_WORKDECK_DATABASE_URL as string | undefined;
+  return getActiveDatabaseUrl();
 }
 
 export function getConfiguredDatabaseKind() {
-  const databaseUrl = getConfiguredDatabaseUrl();
+  return isTauri() ? getActiveDatabaseKind() : "Memory";
+}
 
-  if (databaseUrl?.startsWith("postgres://") || databaseUrl?.startsWith("postgresql://")) {
-    return "PostgreSQL";
-  }
-
-  return isTauri() ? "SQLite" : "Memory";
+export function resetProjectRepository() {
+  repository = null;
 }
 
 function createProjectRepository(): ProjectRepository {
