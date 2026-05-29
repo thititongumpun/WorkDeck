@@ -143,6 +143,7 @@ export function App() {
   const [isCreateResourceOpen, setIsCreateResourceOpen] = useState(false);
   const [editingResource, setEditingResource] = useState<Resource | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [confirmDialog, setConfirmDialog] = useState<{ title: string; message: string; onConfirm: () => void } | null>(null);
   const [theme, setTheme] = useState<ThemeMode>(() => readStoredTheme());
   const selectedProject = projects.find((project) => project.id === selectedProjectId) ?? projects[0];
   const displayedResources =
@@ -211,14 +212,16 @@ export function App() {
     setEditingProject(null);
   }
 
-  async function handleDeleteProject(project: Project) {
-    if (!window.confirm(`Delete ${project.name}? This also removes its resources.`)) {
-      return;
-    }
-
-    await deleteProject.mutateAsync(project.id);
-    const nextProject = projects.find((candidate) => candidate.id !== project.id);
-    setSelectedProjectId(nextProject?.id ?? "");
+  function handleDeleteProject(project: Project) {
+    setConfirmDialog({
+      title: `Delete "${project.name}"?`,
+      message: "This will permanently remove the project and all its resources.",
+      onConfirm: async () => {
+        await deleteProject.mutateAsync(project.id);
+        const nextProject = projects.find((candidate) => candidate.id !== project.id);
+        setSelectedProjectId(nextProject?.id ?? "");
+      },
+    });
   }
 
   async function handleAddResource(input: ResourceFormInput) {
@@ -253,12 +256,14 @@ export function App() {
     });
   }
 
-  async function handleDeleteResource(resource: Resource) {
-    if (!window.confirm(`Delete ${resource.name}?`)) {
-      return;
-    }
-
-    await deleteResource.mutateAsync(resource.id);
+  function handleDeleteResource(resource: Resource) {
+    setConfirmDialog({
+      title: `Delete "${resource.name}"?`,
+      message: "This resource will be permanently removed from the project.",
+      onConfirm: async () => {
+        await deleteResource.mutateAsync(resource.id);
+      },
+    });
   }
 
   async function handleActivateResource(resource: Resource) {
@@ -477,7 +482,7 @@ export function App() {
                     </div>
                     <div className="mt-4 flex items-center justify-between text-xs text-base-content/55">
                       <span>{project.resources.length} resources</span>
-                      <span>{project.updatedAt}</span>
+                      <span>{new Date(project.updatedAt).toLocaleString()}</span>
                     </div>
                   </button>
                 ))}
@@ -645,6 +650,16 @@ export function App() {
         projects={projects}
         theme={theme}
         onToggleTheme={() => setTheme(theme === "dark" ? "light" : "dark")}
+      />
+      <ConfirmDialog
+        message={confirmDialog?.message ?? ""}
+        title={confirmDialog?.title ?? ""}
+        isOpen={confirmDialog !== null}
+        onCancel={() => setConfirmDialog(null)}
+        onConfirm={async () => {
+          await confirmDialog?.onConfirm();
+          setConfirmDialog(null);
+        }}
       />
     </main>
   );
@@ -1086,8 +1101,8 @@ function CreateResourceDialog({
   onSubmit: (input: ResourceFormInput) => Promise<void>;
 }) {
   const [type, setType] = useState<ResourceType>(defaultType);
-  const [name, setName] = useState("");
-  const [detail, setDetail] = useState("");
+  const [pickedName, setPickedName] = useState<string | null>(null);
+  const [pickedDetail, setPickedDetail] = useState<string | null>(null);
   const [authType, setAuthType] = useState<AuthType>("none");
   const [username, setUsername] = useState("");
   const [keyPath, setKeyPath] = useState("");
@@ -1098,6 +1113,8 @@ function CreateResourceDialog({
   useEffect(() => {
     if (isOpen) {
       setType(defaultType);
+      setPickedName(null);
+      setPickedDetail(null);
     }
   }, [defaultType, isOpen]);
 
@@ -1106,8 +1123,8 @@ function CreateResourceDialog({
 
     if (path) {
       setType("file");
-      setDetail(path);
-      setName(name || path.split("/").pop() || "File");
+      setPickedDetail(path);
+      setPickedName(path.split("/").pop() || "File");
     }
   }
 
@@ -1116,14 +1133,15 @@ function CreateResourceDialog({
 
     if (path) {
       setType("file");
-      setDetail(path);
-      setName(name || path.split("/").pop() || "Folder");
+      setPickedDetail(path);
+      setPickedName(path.split("/").pop() || "Folder");
     }
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const trimmedName = name.trim();
+    const formData = new FormData(event.currentTarget);
+    const trimmedName = String(formData.get("name") ?? "").trim();
     if (!trimmedName) {
       return;
     }
@@ -1135,22 +1153,22 @@ function CreateResourceDialog({
       await onSubmit({
         type,
         name: trimmedName,
-        detail: detail.trim(),
+        detail: String(formData.get("detail") ?? "").trim(),
         authType: shouldShowCredentialFields(type) ? authType : "none",
         username: shouldShowCredentialFields(type) ? username.trim() : "",
         keyPath: shouldShowCredentialFields(type) ? keyPath.trim() : "",
         encryptedSecret,
       });
       setType(defaultType);
-      setName("");
-      setDetail("");
+      setPickedName(null);
+      setPickedDetail(null);
       setAuthType("none");
       setUsername("");
       setKeyPath("");
       setSecret("");
       setMasterPassword("");
     } catch (error) {
-      setFormError(error instanceof Error ? error.message : "Could not save resource");
+      setFormError(error instanceof Error ? error.message : typeof error === "string" ? error : JSON.stringify(error));
     }
   }
 
@@ -1185,10 +1203,11 @@ function CreateResourceDialog({
             <input
               autoFocus
               className="input input-bordered w-full rounded-md"
+              defaultValue={pickedName ?? ""}
+              key={pickedName ?? "new-resource-name"}
               maxLength={100}
-              onChange={(event) => setName(event.target.value)}
+              name="name"
               placeholder="Production dashboard"
-              value={name}
             />
           </Field>
 
@@ -1196,10 +1215,11 @@ function CreateResourceDialog({
             <div className="flex gap-2 max-sm:flex-col">
               <input
                 className="input input-bordered min-w-0 flex-1 rounded-md"
+                defaultValue={pickedDetail ?? ""}
+                key={pickedDetail ?? "new-resource-detail"}
                 maxLength={260}
-                onChange={(event) => setDetail(event.target.value)}
+                name="detail"
                 placeholder="https://dashboard.internal or ~/project/docs"
-                value={detail}
               />
               <button className="btn btn-outline rounded-md" onClick={handlePickFile} type="button">
                 <FileText size={17} />
@@ -1235,7 +1255,7 @@ function CreateResourceDialog({
             <button className="btn btn-ghost rounded-md" disabled={isSaving} onClick={onClose} type="button">
               Cancel
             </button>
-            <button className="btn btn-primary rounded-md" disabled={!name.trim() || isSaving} type="submit">
+            <button className="btn btn-primary rounded-md" disabled={isSaving} type="submit">
               {isSaving ? <span className="loading loading-spinner loading-sm" /> : <Plus size={17} />}
               Add
             </button>
@@ -1470,7 +1490,7 @@ function EditResourceDialog({
         encryptedSecret: shouldShowCredentialFields(editType) ? encryptedSecret : null,
       });
     } catch (error) {
-      setFormError(error instanceof Error ? error.message : "Could not save resource");
+      setFormError(error instanceof Error ? error.message : typeof error === "string" ? error : JSON.stringify(error));
     }
   }
 
@@ -1947,5 +1967,64 @@ function ResourceRow({
         </button>
       </div>
     </div>
+  );
+}
+
+function ConfirmDialog({
+  isOpen,
+  title,
+  message,
+  onConfirm,
+  onCancel,
+}: {
+  isOpen: boolean;
+  title: string;
+  message: string;
+  onConfirm: () => Promise<void>;
+  onCancel: () => void;
+}) {
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  async function handleConfirm() {
+    setIsDeleting(true);
+    try {
+      await onConfirm();
+    } finally {
+      setIsDeleting(false);
+    }
+  }
+
+  if (!isOpen) {
+    return null;
+  }
+
+  return (
+    <dialog className="modal modal-open">
+      <div className="modal-box max-w-sm rounded-lg">
+        <div className="flex flex-col gap-3">
+          <div className="flex items-start gap-3">
+            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-error/10 text-error">
+              <Trash2 size={18} />
+            </span>
+            <div className="min-w-0">
+              <h3 className="font-semibold">{title}</h3>
+              <p className="mt-1 text-sm text-base-content/60">{message}</p>
+            </div>
+          </div>
+        </div>
+        <div className="modal-action">
+          <button className="btn btn-ghost rounded-md" disabled={isDeleting} onClick={onCancel} type="button">
+            Cancel
+          </button>
+          <button className="btn btn-error rounded-md" disabled={isDeleting} onClick={handleConfirm} type="button">
+            {isDeleting ? <span className="loading loading-spinner loading-sm" /> : <Trash2 size={16} />}
+            Delete
+          </button>
+        </div>
+      </div>
+      <form className="modal-backdrop" method="dialog">
+        <button onClick={onCancel} type="button">close</button>
+      </form>
+    </dialog>
   );
 }

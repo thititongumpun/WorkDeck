@@ -39,6 +39,16 @@ type ResourceRow = {
   updated_at: string;
 };
 
+function toError(err: unknown, fallback: string): Error {
+  if (err instanceof Error) return err;
+  if (typeof err === "string") return new Error(err);
+  try {
+    return new Error(JSON.stringify(err));
+  } catch {
+    return new Error(fallback);
+  }
+}
+
 export class PostgresProjectRepository implements ProjectRepository {
   private dbPromise: Promise<Database>;
   private initializedPromise: Promise<void>;
@@ -96,14 +106,14 @@ export class PostgresProjectRepository implements ProjectRepository {
 
       for (const resource of project.resources) {
         await db.execute(
-          "INSERT INTO resources (id, project_id, type, name, detail, pinned, auth_type, username, key_path, encrypted_secret, secret_iv, secret_salt, secret_kdf_iterations, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)",
+          "INSERT INTO resources (id, project_id, type, name, detail, pinned, auth_type, username, key_path, encrypted_secret, secret_iv, secret_salt, secret_kdf_iterations, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6::text::integer, $7, $8, $9, $10, $11, $12, $13::text::integer, $14, $15)",
           [
             resource.id,
             project.id,
             resource.type,
             resource.name,
             resource.detail,
-            resource.pinned ?? false,
+            resource.pinned ? 1 : 0,
             resource.authType ?? "none",
             resource.username ?? "",
             resource.keyPath ?? "",
@@ -127,8 +137,8 @@ export class PostgresProjectRepository implements ProjectRepository {
     const accent = "bg-emerald-500";
 
     await db.execute(
-      "INSERT INTO projects (id, name, description, status, accent, created_at, updated_at) VALUES ($1, $2, $3, 'active', $4, $5, $5)",
-      [id, input.name, input.description, accent, now],
+      "INSERT INTO projects (id, name, description, status, accent, created_at, updated_at) VALUES ($1, $2, $3, 'active', $4, $5, $6)",
+      [id, input.name, input.description, accent, now, now],
     );
 
     return {
@@ -172,27 +182,38 @@ export class PostgresProjectRepository implements ProjectRepository {
     const db = await this.dbPromise;
     const id = crypto.randomUUID();
     const now = new Date().toISOString();
+    const pinned = input.pinned ? 1 : 0;
 
-    await db.execute(
-      "INSERT INTO resources (id, project_id, type, name, detail, pinned, auth_type, username, key_path, encrypted_secret, secret_iv, secret_salt, secret_kdf_iterations, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $14)",
-      [
-        id,
-        input.projectId,
-        input.type,
-        input.name,
-        input.detail,
-        input.pinned ?? false,
-        input.authType ?? "none",
-        input.username ?? "",
-        input.keyPath ?? "",
-        input.encryptedSecret?.ciphertext ?? null,
-        input.encryptedSecret?.iv ?? null,
-        input.encryptedSecret?.salt ?? null,
-        input.encryptedSecret?.kdfIterations ?? null,
-        now,
-      ],
-    );
-    await db.execute("UPDATE projects SET updated_at = $1 WHERE id = $2", [now, input.projectId]);
+    try {
+      await db.execute(
+        "INSERT INTO resources (id, project_id, type, name, detail, pinned, auth_type, username, key_path, encrypted_secret, secret_iv, secret_salt, secret_kdf_iterations, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6::text::integer, $7, $8, $9, $10, $11, $12, $13::text::integer, $14, $15)",
+        [
+          id,
+          input.projectId,
+          input.type,
+          input.name,
+          input.detail,
+          pinned,
+          input.authType ?? "none",
+          input.username ?? "",
+          input.keyPath ?? "",
+          input.encryptedSecret?.ciphertext ?? null,
+          input.encryptedSecret?.iv ?? null,
+          input.encryptedSecret?.salt ?? null,
+          input.encryptedSecret?.kdfIterations ?? null,
+          now,
+          now,
+        ],
+      );
+    } catch (err) {
+      throw toError(err, "Failed to insert resource");
+    }
+
+    try {
+      await db.execute("UPDATE projects SET updated_at = $1 WHERE id = $2", [now, input.projectId]);
+    } catch (err) {
+      throw toError(err, "Failed to update project timestamp");
+    }
 
     return {
       id,
@@ -223,12 +244,12 @@ export class PostgresProjectRepository implements ProjectRepository {
     }
 
     await db.execute(
-      "UPDATE resources SET type = $1, name = $2, detail = $3, pinned = COALESCE($4::BOOLEAN, pinned), auth_type = $5, username = $6, key_path = $7, encrypted_secret = $8, secret_iv = $9, secret_salt = $10, secret_kdf_iterations = $11, updated_at = $12 WHERE id = $13",
+      "UPDATE resources SET type = $1, name = $2, detail = $3, pinned = COALESCE($4::text::integer, pinned), auth_type = $5, username = $6, key_path = $7, encrypted_secret = $8, secret_iv = $9, secret_salt = $10, secret_kdf_iterations = $11::text::integer, updated_at = $12 WHERE id = $13",
       [
         input.type,
         input.name,
         input.detail,
-        input.pinned ?? null,
+        input.pinned === undefined ? null : input.pinned ? 1 : 0,
         input.authType ?? "none",
         input.username ?? "",
         input.keyPath ?? "",
@@ -330,7 +351,7 @@ export class PostgresProjectRepository implements ProjectRepository {
         type TEXT NOT NULL CHECK (type IN ('file', 'url', 'server', 'database', 'command', 'note')),
         name TEXT NOT NULL,
         detail TEXT NOT NULL DEFAULT '',
-        pinned BOOLEAN NOT NULL DEFAULT FALSE,
+        pinned INTEGER NOT NULL DEFAULT 0,
         auth_type TEXT NOT NULL DEFAULT 'none' CHECK (auth_type IN ('none', 'agent', 'password', 'key')),
         username TEXT NOT NULL DEFAULT '',
         key_path TEXT NOT NULL DEFAULT '',
@@ -343,7 +364,7 @@ export class PostgresProjectRepository implements ProjectRepository {
       )
     `);
 
-    await db.execute("ALTER TABLE resources ADD COLUMN IF NOT EXISTS pinned BOOLEAN NOT NULL DEFAULT FALSE");
+    await db.execute("ALTER TABLE resources ADD COLUMN IF NOT EXISTS pinned INTEGER NOT NULL DEFAULT 0");
     await db.execute("CREATE INDEX IF NOT EXISTS resources_project_id_idx ON resources(project_id)");
   }
 }

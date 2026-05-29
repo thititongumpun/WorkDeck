@@ -136,8 +136,8 @@ export class SQLiteProjectRepository implements ProjectRepository {
     const accent = "bg-emerald-500";
 
     await db.execute(
-      "INSERT INTO projects (id, name, description, status, accent, created_at, updated_at) VALUES ($1, $2, $3, 'active', $4, $5, $5)",
-      [id, input.name, input.description, accent, now],
+      "INSERT INTO projects (id, name, description, status, accent, created_at, updated_at) VALUES ($1, $2, $3, 'active', $4, $5, $6)",
+      [id, input.name, input.description, accent, now, now],
     );
 
     return {
@@ -181,7 +181,7 @@ export class SQLiteProjectRepository implements ProjectRepository {
     const now = new Date().toISOString();
 
     await db.execute(
-      "INSERT INTO resources (id, project_id, type, name, detail, pinned, auth_type, username, key_path, encrypted_secret, secret_iv, secret_salt, secret_kdf_iterations, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $14)",
+      "INSERT INTO resources (id, project_id, type, name, detail, pinned, auth_type, username, key_path, encrypted_secret, secret_iv, secret_salt, secret_kdf_iterations, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)",
       [
         id,
         input.projectId,
@@ -196,6 +196,7 @@ export class SQLiteProjectRepository implements ProjectRepository {
         input.encryptedSecret?.iv ?? null,
         input.encryptedSecret?.salt ?? null,
         input.encryptedSecret?.kdfIterations ?? null,
+        now,
         now,
       ],
     );
