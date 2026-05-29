@@ -66,6 +66,16 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Verify Linux icon assets
+        if: matrix.platform == 'ubuntu-latest'
+        run: |
+          file \
+            src-tauri/icons/icon.png \
+            src-tauri/icons/32x32.png \
+            src-tauri/icons/128x128.png \
+            src-tauri/icons/128x128@2x.png \
+            src-tauri/icons/icon.ico
+
       - name: Build and upload Tauri bundles
         uses: tauri-apps/tauri-action@v0.6.2
         env:
