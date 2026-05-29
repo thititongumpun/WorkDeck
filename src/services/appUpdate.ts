@@ -28,23 +28,46 @@ export async function checkForAppUpdate(): Promise<UpdateCheckResult> {
   }
 
   const target = getUpdaterTarget();
-  const update = await check(target ? { target } : undefined);
 
-  if (!update) {
-    return { status: "current", currentVersion };
+  try {
+    const update = await check(target ? { target } : undefined);
+
+    if (!update) {
+      return { status: "current", currentVersion };
+    }
+
+    return {
+      status: "available",
+      currentVersion,
+      version: update.version,
+      body: update.body,
+    };
+  } catch (err) {
+    const message =
+      err instanceof Error
+        ? err.message
+        : typeof err === "string"
+          ? err
+          : "Could not reach the update server. Check your internet connection.";
+    throw new Error(message);
   }
-
-  return {
-    status: "available",
-    currentVersion,
-    version: update.version,
-    body: update.body,
-  };
 }
 
 export async function installAppUpdate(onProgress: (message: string) => void) {
   const target = getUpdaterTarget();
-  const update = await check(target ? { target } : undefined);
+
+  let update;
+  try {
+    update = await check(target ? { target } : undefined);
+  } catch (err) {
+    const message =
+      err instanceof Error
+        ? err.message
+        : typeof err === "string"
+          ? err
+          : "Could not reach the update server.";
+    throw new Error(message);
+  }
 
   if (!update) {
     return { installed: false };

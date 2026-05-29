@@ -1606,6 +1606,10 @@ function SettingsDialog({
   const [importStatus, setImportStatus] = useState("");
 
   useEffect(() => {
+    void getInstalledAppVersion().then(setAppVersion).catch(() => setAppVersion("unknown"));
+  }, []);
+
+  useEffect(() => {
     if (!isOpen) {
       return;
     }
@@ -1613,7 +1617,6 @@ function SettingsDialog({
     void getDatabasePath().then(setDatabasePath);
     setDatabaseKind(getDatabaseKind());
     setDatabaseConfig(readDatabaseConfig());
-    void getInstalledAppVersion().then(setAppVersion).catch(() => setAppVersion("unknown"));
     setDatabaseSaveStatus("");
     setDatabaseError("");
     setUpdateStatus("");
