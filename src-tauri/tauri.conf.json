@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "WorkDeck",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "identifier": "app.workdeck.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -26,6 +26,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/icon.png",
       "icons/32x32.png",
@@ -36,6 +37,15 @@
     ]
   },
   "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEZENjkxMDE1NjAxRTA5NzEKUldSeENSNWdGUkJwL1R4ejlsZDhLMzdibERBbHA4SCtIdTVPV2pFYWV2cUlHYzI2blhJS21mSHEK",
+      "endpoints": [
+        "https://github.com/thititongumpun/WorkDeck/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    },
     "sql": {
       "preload": ["sqlite:workdeck.db"]
     }

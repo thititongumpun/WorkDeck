@@ -7,6 +7,7 @@ import {
   Command,
   Copy,
   Database,
+  Download,
   ExternalLink,
   Eye,
   FileText,
@@ -20,6 +21,7 @@ import {
   PanelLeft,
   Pencil,
   Plus,
+  RefreshCw,
   Search,
   Server,
   Settings,
@@ -44,6 +46,7 @@ import {
   useUpdateResource,
 } from "./hooks/useProjects";
 import { copyText, getDatabaseKind, getDatabasePath } from "./services/appSettings";
+import { checkForAppUpdate, getInstalledAppVersion, installAppUpdate, type UpdateCheckResult } from "./services/appUpdate";
 import {
   isPostgresUrl,
   readDatabaseConfig,
@@ -1594,6 +1597,11 @@ function SettingsDialog({
   const [databaseConfig, setDatabaseConfig] = useState<DatabaseConfig>(() => readDatabaseConfig());
   const [databaseSaveStatus, setDatabaseSaveStatus] = useState("");
   const [databaseError, setDatabaseError] = useState("");
+  const [appVersion, setAppVersion] = useState("");
+  const [updateStatus, setUpdateStatus] = useState("");
+  const [updateResult, setUpdateResult] = useState<UpdateCheckResult | null>(null);
+  const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
+  const [isInstallingUpdate, setIsInstallingUpdate] = useState(false);
   const [copyStatus, setCopyStatus] = useState("");
   const [importStatus, setImportStatus] = useState("");
 
@@ -1605,8 +1613,11 @@ function SettingsDialog({
     void getDatabasePath().then(setDatabasePath);
     setDatabaseKind(getDatabaseKind());
     setDatabaseConfig(readDatabaseConfig());
+    void getInstalledAppVersion().then(setAppVersion);
     setDatabaseSaveStatus("");
     setDatabaseError("");
+    setUpdateStatus("");
+    setUpdateResult(null);
     setCopyStatus("");
     setImportStatus("");
   }, [isOpen]);
@@ -1637,6 +1648,39 @@ function SettingsDialog({
     } catch (error) {
       setDatabaseError(error instanceof Error ? error.message : "Could not connect to database.");
       setDatabaseSaveStatus("");
+    }
+  }
+
+  async function handleCheckUpdate() {
+    setIsCheckingUpdate(true);
+    setUpdateStatus("");
+
+    try {
+      const result = await checkForAppUpdate();
+      setUpdateResult(result);
+
+      if (result.status === "unsupported") {
+        setUpdateStatus("Updates are available only in the installed desktop app.");
+      } else if (result.status === "current") {
+        setUpdateStatus("You are on the latest version.");
+      } else {
+        setUpdateStatus(`Version ${result.version} is available.`);
+      }
+    } catch (error) {
+      setUpdateStatus(error instanceof Error ? error.message : "Could not check for updates.");
+    } finally {
+      setIsCheckingUpdate(false);
+    }
+  }
+
+  async function handleInstallUpdate() {
+    setIsInstallingUpdate(true);
+
+    try {
+      await installAppUpdate(setUpdateStatus);
+    } catch (error) {
+      setUpdateStatus(error instanceof Error ? error.message : "Could not install update.");
+      setIsInstallingUpdate(false);
     }
   }
 
@@ -1732,6 +1776,41 @@ function SettingsDialog({
                   </p>
                 ) : null}
                 {databaseSaveStatus ? <p className="text-sm text-success">{databaseSaveStatus}</p> : null}
+              </div>
+            </div>
+          </section>
+
+          <section className="grid gap-2">
+            <h4 className="text-sm font-semibold text-base-content/80">App</h4>
+            <div className="flex items-center justify-between gap-3 rounded-lg border border-base-300 bg-base-200/60 p-3 max-sm:flex-col max-sm:items-stretch">
+              <div>
+                <p className="text-sm font-medium">Version {appVersion || "..."}</p>
+                {updateStatus ? <p className="mt-1 text-xs text-base-content/60">{updateStatus}</p> : null}
+                {updateResult?.status === "available" && updateResult.body ? (
+                  <p className="mt-1 line-clamp-3 text-xs text-base-content/60">{updateResult.body}</p>
+                ) : null}
+              </div>
+              <div className="flex gap-2">
+                <button
+                  className="btn btn-outline rounded-md"
+                  disabled={isCheckingUpdate || isInstallingUpdate}
+                  onClick={handleCheckUpdate}
+                  type="button"
+                >
+                  {isCheckingUpdate ? <span className="loading loading-spinner loading-sm" /> : <RefreshCw size={17} />}
+                  Check
+                </button>
+                {updateResult?.status === "available" ? (
+                  <button
+                    className="btn btn-primary rounded-md"
+                    disabled={isInstallingUpdate}
+                    onClick={handleInstallUpdate}
+                    type="button"
+                  >
+                    {isInstallingUpdate ? <span className="loading loading-spinner loading-sm" /> : <Download size={17} />}
+                    Install
+                  </button>
+                ) : null}
               </div>
             </div>
           </section>
