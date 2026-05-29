@@ -1,0 +1,8 @@
+node_modules
+dist
+dist-ssr
+*.local
+src-tauri/target
+src-tauri/gen
+src-tauri/workdeck-backup-*.json
+.env

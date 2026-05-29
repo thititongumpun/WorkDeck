@@ -1,0 +1,38 @@
+{
+  "name": "workdeck",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "tsc && vite build",
+    "preview": "vite preview --host 0.0.0.0",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:dev:safe": "WEBKIT_DISABLE_DMABUF_RENDERER=1 LIBGL_ALWAYS_SOFTWARE=1 tauri dev"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.0.0",
+    "@tauri-apps/api": "^2.0.0",
+    "@tauri-apps/plugin-clipboard-manager": "^2.3.2",
+    "@tauri-apps/plugin-dialog": "^2.7.1",
+    "@tauri-apps/plugin-opener": "^2.5.4",
+    "@tauri-apps/plugin-sql": "^2.4.0",
+    "clsx": "^2.1.1",
+    "daisyui": "^5.0.0",
+    "lucide-react": "^0.468.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "zustand": "^5.0.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.0.0",
+    "@tauri-apps/cli": "^2.0.0",
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.0",
+    "tailwindcss": "^4.0.0",
+    "typescript": "^5.6.0",
+    "vite": "^6.0.0"
+  }
+}
