@@ -1613,7 +1613,7 @@ function SettingsDialog({
     void getDatabasePath().then(setDatabasePath);
     setDatabaseKind(getDatabaseKind());
     setDatabaseConfig(readDatabaseConfig());
-    void getInstalledAppVersion().then(setAppVersion);
+    void getInstalledAppVersion().then(setAppVersion).catch(() => setAppVersion("unknown"));
     setDatabaseSaveStatus("");
     setDatabaseError("");
     setUpdateStatus("");

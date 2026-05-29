@@ -13,7 +13,11 @@ export async function getInstalledAppVersion() {
     return "dev";
   }
 
-  return getVersion();
+  try {
+    return await getVersion();
+  } catch {
+    return "unknown";
+  }
 }
 
 export async function checkForAppUpdate(): Promise<UpdateCheckResult> {
