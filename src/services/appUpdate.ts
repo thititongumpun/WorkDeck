@@ -23,7 +23,8 @@ export async function checkForAppUpdate(): Promise<UpdateCheckResult> {
     return { status: "unsupported", currentVersion };
   }
 
-  const update = await check();
+  const target = getUpdaterTarget();
+  const update = await check(target ? { target } : undefined);
 
   if (!update) {
     return { status: "current", currentVersion };
@@ -38,7 +39,8 @@ export async function checkForAppUpdate(): Promise<UpdateCheckResult> {
 }
 
 export async function installAppUpdate(onProgress: (message: string) => void) {
-  const update = await check();
+  const target = getUpdaterTarget();
+  const update = await check(target ? { target } : undefined);
 
   if (!update) {
     return { installed: false };
@@ -66,4 +68,18 @@ export async function installAppUpdate(onProgress: (message: string) => void) {
 
   await relaunch();
   return { installed: true };
+}
+
+function getUpdaterTarget() {
+  const userAgent = navigator.userAgent.toLowerCase();
+
+  if (userAgent.includes("windows")) {
+    return "windows-x86_64";
+  }
+
+  if (userAgent.includes("linux")) {
+    return "linux-x86_64";
+  }
+
+  return undefined;
 }

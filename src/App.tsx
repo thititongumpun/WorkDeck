@@ -1844,11 +1844,6 @@ function SettingsDialog({
             {importStatus ? <p className="text-sm text-success">{importStatus}</p> : null}
             {importError ? <p className="text-sm text-error">{importError}</p> : null}
           </section>
-
-          <section className="grid gap-2">
-            <h4 className="text-sm font-semibold text-base-content/80">Version</h4>
-            <p className="text-sm text-base-content/60">WorkDeck 0.1.0</p>
-          </section>
         </div>
 
         <div className="modal-action">
