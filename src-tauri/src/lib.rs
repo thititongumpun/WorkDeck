@@ -23,6 +23,12 @@ pub fn run() {
             sql: include_str!("../migrations/003_resource_pinned.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 4,
+            description: "add_resource_target",
+            sql: include_str!("../migrations/004_resource_target.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()

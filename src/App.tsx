@@ -4,18 +4,15 @@ import {
   AppWindow,
   BookOpenText,
   Box,
+  Check,
   Command,
   Copy,
   Database,
   Download,
-  ExternalLink,
-  Eye,
   FileText,
   Folder,
-  FolderOpen,
   Globe2,
   HardDrive,
-  Link2,
   MoreHorizontal,
   Moon,
   PanelLeft,
@@ -23,7 +20,6 @@ import {
   Plus,
   RefreshCw,
   Search,
-  Server,
   Settings,
   SquareTerminal,
   Star,
@@ -34,6 +30,20 @@ import { ChangeEvent, FormEvent, KeyboardEvent, ReactNode, useEffect, useRef, us
 import { useQueryClient } from "@tanstack/react-query";
 import { create } from "zustand";
 import { clsx } from "clsx";
+import {
+  CreateResourceDialog,
+  EditResourceDialog,
+  ResourceDetailDialog,
+  ResourceLibraryView,
+  ResourceMini,
+  ResourceRow,
+  resourceIcons,
+} from "./components/resources";
+import {
+  getResourceSummary,
+  type ResourceFormInput,
+  type ResourceQuickView,
+} from "./domain/resources";
 import {
   useAddResource,
   useCreateProject,
@@ -55,20 +65,10 @@ import {
   type DatabaseConfig,
 } from "./services/databaseConfig";
 import { activateResource } from "./services/resourceActions";
-import { pickFilePath, pickFolderPath } from "./services/filePicker";
-import { decryptSecret, encryptSecret } from "./services/masterSecret";
+import { decryptSecret } from "./services/masterSecret";
 import { getProjectRepository, resetProjectRepository } from "./repositories/projectRepository";
-import type { AuthType, EncryptedSecret, Project, ProjectStatus, Resource, ResourceType, SearchResult } from "./domain/workspace";
-
-type ResourceFormInput = {
-  type: ResourceType;
-  name: string;
-  detail: string;
-  authType?: AuthType;
-  username?: string;
-  keyPath?: string;
-  encryptedSecret?: EncryptedSecret | null;
-};
+import { PROJECT_ACCENTS, projectAccentAt } from "./repositories/projectAccent";
+import type { Project, ProjectStatus, Resource, ResourceType, SearchResult } from "./domain/workspace";
 
 type ThemeMode = "light" | "dark";
 type WorkspaceSection = "projects" | "pinned" | "resources" | "commands" | "databases" | "notes";
@@ -106,17 +106,29 @@ const navigation = [
   pinnedOnly?: boolean;
 }>;
 
-const resourceIcons: Record<ResourceType, typeof FileText> = {
-  file: FileText,
-  url: Link2,
-  server: Server,
-  database: Database,
-  command: SquareTerminal,
-  note: BookOpenText,
+const projectStatuses: ProjectStatus[] = ["active", "paused", "archived"];
+const projectAccentLabels: Record<(typeof PROJECT_ACCENTS)[number], string> = {
+  "bg-emerald-500": "Emerald",
+  "bg-sky-500": "Sky",
+  "bg-amber-500": "Amber",
+  "bg-rose-500": "Rose",
+  "bg-violet-500": "Violet",
+};
+const statusBadgeClasses: Record<ProjectStatus, string> = {
+  active: "badge-success",
+  paused: "badge-warning",
+  archived: "badge-neutral",
 };
 
-const resourceTypes: ResourceType[] = ["file", "url", "server", "database", "command", "note"];
-const projectStatuses: ProjectStatus[] = ["active", "paused", "archived"];
+type CreateProjectFormInput = {
+  name: string;
+  description: string;
+  accent: string;
+};
+
+type UpdateProjectFormInput = CreateProjectFormInput & {
+  status: ProjectStatus;
+};
 
 export function App() {
   const queryClient = useQueryClient();
@@ -142,6 +154,7 @@ export function App() {
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [isCreateResourceOpen, setIsCreateResourceOpen] = useState(false);
   const [editingResource, setEditingResource] = useState<Resource | null>(null);
+  const [quickViewResource, setQuickViewResource] = useState<ResourceQuickView | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState<{ title: string; message: string; onConfirm: () => void } | null>(null);
   const [theme, setTheme] = useState<ThemeMode>(() => readStoredTheme());
@@ -180,7 +193,7 @@ export function App() {
     localStorage.setItem("workdeck-theme", theme);
   }, [theme]);
 
-  async function handleCreateProject(input: { name: string; description: string }) {
+  async function handleCreateProject(input: CreateProjectFormInput) {
     const project = await createProject.mutateAsync(input);
     setSelectedProjectId(project.id);
     setIsCreateProjectOpen(false);
@@ -203,7 +216,7 @@ export function App() {
     }
   }
 
-  async function handleUpdateProject(input: { name: string; description: string; status: ProjectStatus }) {
+  async function handleUpdateProject(input: UpdateProjectFormInput) {
     if (!editingProject) {
       return;
     }
@@ -247,6 +260,7 @@ export function App() {
       id: resource.id,
       type: resource.type,
       name: resource.name,
+      target: resource.target,
       detail: resource.detail,
       pinned: !resource.pinned,
       authType: resource.authType,
@@ -360,7 +374,7 @@ export function App() {
                 pinnedResources.map(({ project, resource }) => (
                   <ResourceMini
                     key={resource.id}
-                    detail={`${project.name} / ${resource.detail}`}
+                    detail={`${project.name} / ${getResourceSummary(resource)}`}
                     name={resource.name}
                     onClick={() => setActiveSection("pinned")}
                     type={resource.type}
@@ -478,7 +492,9 @@ export function App() {
                           </p>
                         </div>
                       </div>
-                      <span className="badge badge-ghost shrink-0 capitalize">{project.status}</span>
+                      <span className={clsx("badge shrink-0 capitalize", statusBadgeClasses[project.status])}>
+                        {project.status}
+                      </span>
                     </div>
                     <div className="mt-4 flex items-center justify-between text-xs text-base-content/55">
                       <span>{project.resources.length} resources</span>
@@ -569,6 +585,7 @@ export function App() {
                           onActivate={handleActivateResource}
                           onDelete={handleDeleteResource}
                           onEdit={setEditingResource}
+                          onQuickView={(resource) => setQuickViewResource({ projectName: selectedProject.name, resource })}
                           onRevealSecret={handleRevealSecret}
                           onTogglePinned={handleTogglePinned}
                         />
@@ -601,6 +618,7 @@ export function App() {
               onAdd={() => setIsCreateResourceOpen(true)}
               onDelete={handleDeleteResource}
               onEdit={setEditingResource}
+              onQuickView={(resource, projectName) => setQuickViewResource({ projectName, resource })}
               onRevealSecret={handleRevealSecret}
               onTogglePinned={handleTogglePinned}
               projects={projects}
@@ -639,6 +657,10 @@ export function App() {
         onClose={() => setEditingResource(null)}
         onSubmit={handleUpdateResource}
         resource={editingResource}
+      />
+      <ResourceDetailDialog
+        onClose={() => setQuickViewResource(null)}
+        quickView={quickViewResource}
       />
       <SettingsDialog
         importError={replaceWorkspace.error instanceof Error ? replaceWorkspace.error.message : null}
@@ -683,155 +705,6 @@ function readStoredTheme(): ThemeMode {
   }
 
   return localStorage.getItem("workdeck-theme") === "dark" ? "dark" : "light";
-}
-
-function ResourceLibraryView({
-  isError,
-  isLoading,
-  items,
-  onActivate,
-  onAdd,
-  onDelete,
-  onEdit,
-  onRevealSecret,
-  onTogglePinned,
-  pinnedOnly,
-  projects,
-  resourceType,
-  title,
-}: {
-  isError: boolean;
-  isLoading: boolean;
-  items: Array<{ project: Project; resource: Resource }>;
-  onActivate: (resource: Resource) => void;
-  onAdd: () => void;
-  onDelete: (resource: Resource) => void;
-  onEdit: (resource: Resource) => void;
-  onRevealSecret: (resource: Resource) => void;
-  onTogglePinned: (resource: Resource) => void;
-  pinnedOnly: boolean;
-  projects: Project[];
-  resourceType: ResourceType | null;
-  title: string;
-}) {
-  const totalResources = projects.reduce((sum, project) => sum + project.resources.length, 0);
-  const resourceCounts = resourceTypes.map((type) => ({
-    type,
-    count: projects.reduce((sum, project) => sum + project.resources.filter((resource) => resource.type === type).length, 0),
-  }));
-  const Icon = resourceType ? resourceIcons[resourceType] : Box;
-
-  return (
-    <div className="min-h-0 flex-1 overflow-auto">
-      <div className="mx-auto max-w-6xl px-6 py-6 max-sm:px-4">
-        <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
-          <div className="min-w-0">
-            <div className="mb-2 flex items-center gap-2 text-sm text-base-content/60">
-              <Icon size={16} />
-              Local resources
-            </div>
-            <h2 className="text-3xl font-semibold tracking-normal max-sm:text-2xl">{title}</h2>
-            <p className="mt-2 max-w-2xl text-base text-base-content/65">
-              {pinnedOnly
-                ? `${items.length} pinned ${items.length === 1 ? "resource" : "resources"} across ${projects.length} projects`
-                : resourceType
-                ? `${items.length} ${resourceType} ${items.length === 1 ? "resource" : "resources"} across ${projects.length} projects`
-                : `${totalResources} resources across ${projects.length} projects`}
-            </p>
-          </div>
-          <button className="btn btn-primary rounded-md" disabled={projects.length === 0} onClick={onAdd}>
-            <Plus size={17} />
-            Add resource
-          </button>
-        </div>
-
-        <div className="mb-5 grid grid-cols-6 gap-3 max-lg:grid-cols-3 max-sm:grid-cols-2">
-          {resourceCounts.map(({ type, count }) => {
-            const CountIcon = resourceIcons[type];
-
-            return (
-              <div
-                className={clsx(
-                  "rounded-lg border bg-base-100 p-3",
-                  resourceType === type ? "border-primary/40 bg-primary/10" : "border-base-300",
-                )}
-                key={type}
-              >
-                <div className="flex items-center gap-2 text-xs font-medium capitalize text-base-content/60">
-                  <CountIcon size={15} />
-                  {type}
-                </div>
-                <div className="mt-2 text-lg font-semibold">{count}</div>
-              </div>
-            );
-          })}
-        </div>
-
-        <div className="overflow-hidden rounded-lg border border-base-300 bg-base-100">
-          {isLoading ? (
-            <div className="p-4">
-              <ProjectSkeleton />
-            </div>
-          ) : isError ? (
-            <div className="px-4 py-10 text-center text-sm text-error">
-              WorkDeck could not load the local workspace database.
-            </div>
-          ) : items.length > 0 ? (
-            items.map(({ project, resource }, index) => (
-              <ResourceRow
-                key={resource.id}
-                resource={resource}
-                projectName={project.name}
-                className={index === items.length - 1 ? "" : "border-b border-base-300"}
-                onActivate={onActivate}
-                onDelete={onDelete}
-                onEdit={onEdit}
-                onRevealSecret={onRevealSecret}
-                onTogglePinned={onTogglePinned}
-              />
-            ))
-          ) : (
-            <div className="px-4 py-10 text-center">
-              <h4 className="font-medium">No {pinnedOnly ? "pinned resources" : resourceType ?? "resources"} yet</h4>
-              <p className="mt-1 text-sm text-base-content/60">
-                {projects.length > 0
-                  ? pinnedOnly
-                    ? "Use the star button on any resource to pin it."
-                    : "Add a resource to the selected project."
-                  : "Create a project before adding resources."}
-              </p>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ResourceMini({
-  name,
-  detail,
-  type,
-  onClick,
-}: {
-  name: string;
-  detail: string;
-  type: ResourceType;
-  onClick?: () => void;
-}) {
-  const Icon = resourceIcons[type];
-
-  return (
-    <button className="flex w-full items-center gap-3 rounded-md px-2 py-2 text-left hover:bg-base-200" onClick={onClick}>
-      <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-base-200">
-        <Icon size={16} />
-      </span>
-      <span className="min-w-0">
-        <span className="block truncate text-sm font-medium">{name}</span>
-        <span className="block truncate text-xs text-base-content/55">{detail}</span>
-      </span>
-    </button>
-  );
 }
 
 function SearchResults({
@@ -909,6 +782,41 @@ function Field({
   );
 }
 
+function ProjectColorPicker({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (accent: string) => void;
+}) {
+  return (
+    <Field label="Color">
+      <div className="flex flex-wrap gap-2">
+        {PROJECT_ACCENTS.map((accent) => {
+          const isSelected = value === accent;
+
+          return (
+            <button
+              aria-label={`${projectAccentLabels[accent]} project color`}
+              className={clsx(
+                "grid h-9 w-9 place-items-center rounded-full border border-base-300 transition",
+                accent,
+                isSelected && "ring-2 ring-primary ring-offset-2 ring-offset-base-100",
+              )}
+              key={accent}
+              onClick={() => onChange(accent)}
+              title={projectAccentLabels[accent]}
+              type="button"
+            >
+              {isSelected ? <Check className="text-white drop-shadow" size={17} strokeWidth={3} /> : null}
+            </button>
+          );
+        })}
+      </div>
+    </Field>
+  );
+}
+
 function CreateProjectDialog({
   isOpen,
   isSaving,
@@ -920,10 +828,11 @@ function CreateProjectDialog({
   isSaving: boolean;
   error: string | null;
   onClose: () => void;
-  onSubmit: (input: { name: string; description: string }) => Promise<void>;
+  onSubmit: (input: CreateProjectFormInput) => Promise<void>;
 }) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [accent, setAccent] = useState<string>(projectAccentAt(0));
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -933,7 +842,7 @@ function CreateProjectDialog({
       return;
     }
 
-    await onSubmit({ name: trimmedName, description: description.trim() });
+    await onSubmit({ name: trimmedName, description: description.trim(), accent });
     setName("");
     setDescription("");
   }
@@ -972,6 +881,8 @@ function CreateProjectDialog({
             />
           </Field>
 
+          <ProjectColorPicker value={accent} onChange={setAccent} />
+
           {error ? <p className="rounded-md bg-error/10 px-3 py-2 text-sm text-error">{error}</p> : null}
 
           <div className="modal-action">
@@ -1005,8 +916,14 @@ function EditProjectDialog({
   isSaving: boolean;
   error: string | null;
   onClose: () => void;
-  onSubmit: (input: { name: string; description: string; status: ProjectStatus }) => Promise<void>;
+  onSubmit: (input: UpdateProjectFormInput) => Promise<void>;
 }) {
+  const [accent, setAccent] = useState(project?.accent ?? projectAccentAt(0));
+
+  useEffect(() => {
+    setAccent(project?.accent ?? projectAccentAt(0));
+  }, [project?.accent, project?.id]);
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
@@ -1018,7 +935,7 @@ function EditProjectDialog({
       return;
     }
 
-    await onSubmit({ name, description, status });
+    await onSubmit({ name, description, status, accent });
   }
 
   if (!project) {
@@ -1063,513 +980,9 @@ function EditProjectDialog({
             </select>
           </Field>
 
+          <ProjectColorPicker value={accent} onChange={setAccent} />
+
           {error ? <p className="rounded-md bg-error/10 px-3 py-2 text-sm text-error">{error}</p> : null}
-
-          <div className="modal-action">
-            <button className="btn btn-ghost rounded-md" disabled={isSaving} onClick={onClose} type="button">
-              Cancel
-            </button>
-            <button className="btn btn-primary rounded-md" disabled={isSaving} type="submit">
-              {isSaving ? <span className="loading loading-spinner loading-sm" /> : <Pencil size={17} />}
-              Save
-            </button>
-          </div>
-        </form>
-      </div>
-      <form className="modal-backdrop" method="dialog">
-        <button onClick={onClose} type="button">
-          close
-        </button>
-      </form>
-    </dialog>
-  );
-}
-
-function CreateResourceDialog({
-  defaultType,
-  isOpen,
-  isSaving,
-  error,
-  onClose,
-  onSubmit,
-}: {
-  defaultType: ResourceType;
-  isOpen: boolean;
-  isSaving: boolean;
-  error: string | null;
-  onClose: () => void;
-  onSubmit: (input: ResourceFormInput) => Promise<void>;
-}) {
-  const [type, setType] = useState<ResourceType>(defaultType);
-  const [pickedName, setPickedName] = useState<string | null>(null);
-  const [pickedDetail, setPickedDetail] = useState<string | null>(null);
-  const [authType, setAuthType] = useState<AuthType>("none");
-  const [username, setUsername] = useState("");
-  const [keyPath, setKeyPath] = useState("");
-  const [secret, setSecret] = useState("");
-  const [masterPassword, setMasterPassword] = useState("");
-  const [formError, setFormError] = useState("");
-
-  useEffect(() => {
-    if (isOpen) {
-      setType(defaultType);
-      setPickedName(null);
-      setPickedDetail(null);
-    }
-  }, [defaultType, isOpen]);
-
-  async function handlePickFile() {
-    const path = await pickFilePath();
-
-    if (path) {
-      setType("file");
-      setPickedDetail(path);
-      setPickedName(path.split("/").pop() || "File");
-    }
-  }
-
-  async function handlePickFolder() {
-    const path = await pickFolderPath();
-
-    if (path) {
-      setType("file");
-      setPickedDetail(path);
-      setPickedName(path.split("/").pop() || "Folder");
-    }
-  }
-
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const formData = new FormData(event.currentTarget);
-    const trimmedName = String(formData.get("name") ?? "").trim();
-    if (!trimmedName) {
-      return;
-    }
-
-    try {
-      setFormError("");
-      const encryptedSecret = await buildEncryptedSecret(authType, secret, masterPassword);
-
-      await onSubmit({
-        type,
-        name: trimmedName,
-        detail: String(formData.get("detail") ?? "").trim(),
-        authType: shouldShowCredentialFields(type) ? authType : "none",
-        username: shouldShowCredentialFields(type) ? username.trim() : "",
-        keyPath: shouldShowCredentialFields(type) ? keyPath.trim() : "",
-        encryptedSecret,
-      });
-      setType(defaultType);
-      setPickedName(null);
-      setPickedDetail(null);
-      setAuthType("none");
-      setUsername("");
-      setKeyPath("");
-      setSecret("");
-      setMasterPassword("");
-    } catch (error) {
-      setFormError(error instanceof Error ? error.message : typeof error === "string" ? error : JSON.stringify(error));
-    }
-  }
-
-  if (!isOpen) {
-    return null;
-  }
-
-  return (
-    <dialog className="modal modal-open">
-      <div className="modal-box max-w-lg rounded-lg">
-        <div className="mb-5">
-          <h3 className="text-lg font-semibold">Add resource</h3>
-          <p className="mt-1 text-sm text-base-content/60">Attach a local project item to this workspace.</p>
-        </div>
-
-        <form className="grid gap-4" onSubmit={handleSubmit}>
-          <Field label="Type">
-            <select
-              className="select select-bordered w-full rounded-md"
-              onChange={(event) => setType(event.target.value as ResourceType)}
-              value={type}
-            >
-              {resourceTypes.map((resourceType) => (
-                <option key={resourceType} value={resourceType}>
-                  {resourceType}
-                </option>
-              ))}
-            </select>
-          </Field>
-
-          <Field label="Name">
-            <input
-              autoFocus
-              className="input input-bordered w-full rounded-md"
-              defaultValue={pickedName ?? ""}
-              key={pickedName ?? "new-resource-name"}
-              maxLength={100}
-              name="name"
-              placeholder="Production dashboard"
-            />
-          </Field>
-
-          <Field label="Target or detail">
-            <div className="flex gap-2 max-sm:flex-col">
-              <input
-                className="input input-bordered min-w-0 flex-1 rounded-md"
-                defaultValue={pickedDetail ?? ""}
-                key={pickedDetail ?? "new-resource-detail"}
-                maxLength={260}
-                name="detail"
-                placeholder="https://dashboard.internal or ~/project/docs"
-              />
-              <button className="btn btn-outline rounded-md" onClick={handlePickFile} type="button">
-                <FileText size={17} />
-                File
-              </button>
-              <button className="btn btn-outline rounded-md" onClick={handlePickFolder} type="button">
-                <FolderOpen size={17} />
-                Folder
-              </button>
-            </div>
-          </Field>
-
-          {shouldShowCredentialFields(type) ? (
-            <CredentialFields
-              authType={authType}
-              keyPath={keyPath}
-              masterPassword={masterPassword}
-              secret={secret}
-              setAuthType={setAuthType}
-              setKeyPath={setKeyPath}
-              setMasterPassword={setMasterPassword}
-              setSecret={setSecret}
-              setUsername={setUsername}
-              username={username}
-            />
-          ) : null}
-
-          {formError || error ? (
-            <p className="rounded-md bg-error/10 px-3 py-2 text-sm text-error">{formError || error}</p>
-          ) : null}
-
-          <div className="modal-action">
-            <button className="btn btn-ghost rounded-md" disabled={isSaving} onClick={onClose} type="button">
-              Cancel
-            </button>
-            <button className="btn btn-primary rounded-md" disabled={isSaving} type="submit">
-              {isSaving ? <span className="loading loading-spinner loading-sm" /> : <Plus size={17} />}
-              Add
-            </button>
-          </div>
-        </form>
-      </div>
-      <form className="modal-backdrop" method="dialog">
-        <button onClick={onClose} type="button">
-          close
-        </button>
-      </form>
-    </dialog>
-  );
-}
-
-function CredentialFields({
-  authType,
-  existingSecret = false,
-  keyPath,
-  masterPassword,
-  secret,
-  username,
-  setAuthType,
-  setKeyPath,
-  setMasterPassword,
-  setSecret,
-  setUsername,
-}: {
-  authType: AuthType;
-  existingSecret?: boolean;
-  keyPath: string;
-  masterPassword: string;
-  secret: string;
-  username: string;
-  setAuthType: (value: AuthType) => void;
-  setKeyPath: (value: string) => void;
-  setMasterPassword: (value: string) => void;
-  setSecret: (value: string) => void;
-  setUsername: (value: string) => void;
-}) {
-  async function handlePickKey() {
-    const path = await pickFilePath();
-
-    if (path) {
-      setKeyPath(path);
-    }
-  }
-
-  return (
-    <div className="grid gap-4 rounded-lg border border-base-300 bg-base-200/60 p-4">
-      <div>
-        <h4 className="text-sm font-semibold">Credential</h4>
-        <p className="mt-1 text-xs text-base-content/60">Secrets are encrypted with the master password before saving.</p>
-      </div>
-
-      <Field label="Auth type">
-        <select
-          className="select select-bordered w-full rounded-md"
-          onChange={(event) => setAuthType(event.target.value as AuthType)}
-          value={authType}
-        >
-          <option value="none">none</option>
-          <option value="agent">ssh-agent</option>
-          <option value="password">password</option>
-          <option value="key">ssh key</option>
-        </select>
-      </Field>
-
-      {authType !== "none" ? (
-        <Field label="Username">
-          <input
-            className="input input-bordered w-full rounded-md"
-            maxLength={100}
-            onChange={(event) => setUsername(event.target.value)}
-            placeholder="ubuntu"
-            value={username}
-          />
-        </Field>
-      ) : null}
-
-      {authType === "key" ? (
-        <Field label="Key path">
-          <div className="flex gap-2 max-sm:flex-col">
-            <input
-              className="input input-bordered min-w-0 flex-1 rounded-md"
-              maxLength={260}
-              onChange={(event) => setKeyPath(event.target.value)}
-              placeholder="~/.ssh/id_ed25519"
-              value={keyPath}
-            />
-            <button className="btn btn-outline rounded-md" onClick={handlePickKey} type="button">
-              <FileText size={17} />
-              Key
-            </button>
-          </div>
-        </Field>
-      ) : null}
-
-      {authType === "password" || authType === "key" ? (
-        <>
-          <Field label={authType === "password" ? "Password" : "Key passphrase"}>
-            <input
-              className="input input-bordered w-full rounded-md"
-              onChange={(event) => setSecret(event.target.value)}
-              placeholder={existingSecret ? "Leave blank to keep existing secret" : ""}
-              type="password"
-              value={secret}
-            />
-          </Field>
-
-          <Field label="Master password">
-            <input
-              className="input input-bordered w-full rounded-md"
-              onChange={(event) => setMasterPassword(event.target.value)}
-              placeholder={existingSecret && !secret ? "Required only when changing the secret" : ""}
-              type="password"
-              value={masterPassword}
-            />
-          </Field>
-        </>
-      ) : null}
-    </div>
-  );
-}
-
-function shouldShowCredentialFields(type: ResourceType) {
-  return type === "server" || type === "database";
-}
-
-async function buildEncryptedSecret(authType: AuthType, secret: string, masterPassword: string) {
-  const trimmedSecret = secret.trim();
-
-  if (authType === "none" || authType === "agent") {
-    return null;
-  }
-
-  if (!trimmedSecret) {
-    if (authType === "password") {
-      throw new Error("Password is required for password auth");
-    }
-
-    return null;
-  }
-
-  if (!masterPassword) {
-    throw new Error("Master password is required to encrypt the secret");
-  }
-
-  return encryptSecret(trimmedSecret, masterPassword);
-}
-
-function EditResourceDialog({
-  resource,
-  isSaving,
-  error,
-  onClose,
-  onSubmit,
-}: {
-  resource: Resource | null;
-  isSaving: boolean;
-  error: string | null;
-  onClose: () => void;
-  onSubmit: (input: ResourceFormInput) => Promise<void>;
-}) {
-  const [pickedDetail, setPickedDetail] = useState<string | null>(null);
-  const [editType, setEditType] = useState<ResourceType>("file");
-  const [authType, setAuthType] = useState<AuthType>("none");
-  const [username, setUsername] = useState("");
-  const [keyPath, setKeyPath] = useState("");
-  const [secret, setSecret] = useState("");
-  const [masterPassword, setMasterPassword] = useState("");
-  const [formError, setFormError] = useState("");
-
-  useEffect(() => {
-    if (!resource) {
-      return;
-    }
-
-    setAuthType(resource.authType);
-    setEditType(resource.type);
-    setUsername(resource.username);
-    setKeyPath(resource.keyPath);
-    setSecret("");
-    setMasterPassword("");
-    setPickedDetail(null);
-    setFormError("");
-  }, [resource]);
-
-  async function handlePickFile() {
-    const path = await pickFilePath();
-
-    if (path) {
-      setPickedDetail(path);
-    }
-  }
-
-  async function handlePickFolder() {
-    const path = await pickFolderPath();
-
-    if (path) {
-      setPickedDetail(path);
-    }
-  }
-
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const formData = new FormData(event.currentTarget);
-    const name = String(formData.get("name") ?? "").trim();
-    const detail = String(formData.get("detail") ?? pickedDetail ?? "").trim();
-
-    if (!name) {
-      return;
-    }
-
-    try {
-      setFormError("");
-      const encryptedSecret = secret
-        ? await buildEncryptedSecret(authType, secret, masterPassword)
-        : authType === "password"
-          ? resource?.encryptedSecret ?? null
-          : authType === "key"
-            ? resource?.encryptedSecret ?? null
-            : null;
-
-      await onSubmit({
-        type: editType,
-        name,
-        detail,
-        authType: shouldShowCredentialFields(editType) ? authType : "none",
-        username: shouldShowCredentialFields(editType) ? username.trim() : "",
-        keyPath: shouldShowCredentialFields(editType) ? keyPath.trim() : "",
-        encryptedSecret: shouldShowCredentialFields(editType) ? encryptedSecret : null,
-      });
-    } catch (error) {
-      setFormError(error instanceof Error ? error.message : typeof error === "string" ? error : JSON.stringify(error));
-    }
-  }
-
-  if (!resource) {
-    return null;
-  }
-
-  return (
-    <dialog className="modal modal-open">
-      <div className="modal-box max-w-lg rounded-lg">
-        <div className="mb-5">
-          <h3 className="text-lg font-semibold">Edit resource</h3>
-          <p className="mt-1 text-sm text-base-content/60">Update this project resource.</p>
-        </div>
-
-        <form className="grid gap-4" onSubmit={handleSubmit}>
-          <Field label="Type">
-            <select
-              className="select select-bordered w-full rounded-md"
-              onChange={(event) => setEditType(event.target.value as ResourceType)}
-              value={editType}
-            >
-              {resourceTypes.map((resourceType) => (
-                <option key={resourceType} value={resourceType}>
-                  {resourceType}
-                </option>
-              ))}
-            </select>
-          </Field>
-
-          <Field label="Name">
-            <input
-              autoFocus
-              className="input input-bordered w-full rounded-md"
-              defaultValue={resource.name}
-              maxLength={100}
-              name="name"
-            />
-          </Field>
-
-          <Field label="Target or detail">
-            <div className="flex gap-2 max-sm:flex-col">
-              <input
-                className="input input-bordered min-w-0 flex-1 rounded-md"
-                defaultValue={pickedDetail ?? resource.detail}
-                key={pickedDetail ?? resource.detail}
-                maxLength={260}
-                name="detail"
-              />
-              <button className="btn btn-outline rounded-md" onClick={handlePickFile} type="button">
-                <FileText size={17} />
-                File
-              </button>
-              <button className="btn btn-outline rounded-md" onClick={handlePickFolder} type="button">
-                <FolderOpen size={17} />
-                Folder
-              </button>
-            </div>
-          </Field>
-
-          {shouldShowCredentialFields(editType) ? (
-            <CredentialFields
-              authType={authType}
-              existingSecret={Boolean(resource.encryptedSecret)}
-              keyPath={keyPath}
-              masterPassword={masterPassword}
-              secret={secret}
-              setAuthType={setAuthType}
-              setKeyPath={setKeyPath}
-              setMasterPassword={setMasterPassword}
-              setSecret={setSecret}
-              setUsername={setUsername}
-              username={username}
-            />
-          ) : null}
-
-          {formError || error ? (
-            <p className="rounded-md bg-error/10 px-3 py-2 text-sm text-error">{formError || error}</p>
-          ) : null}
 
           <div className="modal-action">
             <button className="btn btn-ghost rounded-md" disabled={isSaving} onClick={onClose} type="button">
@@ -1881,92 +1294,6 @@ function SettingsDialog({
         </button>
       </form>
     </dialog>
-  );
-}
-
-function ResourceRow({
-  resource,
-  className,
-  projectName,
-  onDelete,
-  onEdit,
-  onActivate,
-  onRevealSecret,
-  onTogglePinned,
-}: {
-  resource: Resource;
-  className?: string;
-  projectName?: string;
-  onActivate: (resource: Resource) => void;
-  onDelete: (resource: Resource) => void;
-  onEdit: (resource: Resource) => void;
-  onRevealSecret: (resource: Resource) => void;
-  onTogglePinned: (resource: Resource) => void;
-}) {
-  const Icon = resourceIcons[resource.type];
-
-  return (
-    <div className={clsx("flex items-center gap-3 px-4 py-3", className)}>
-      <span className="grid h-10 w-10 shrink-0 place-items-center rounded-md bg-base-200">
-        <Icon size={18} />
-      </span>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <h4 className="truncate font-medium">{resource.name}</h4>
-          <span className="badge badge-outline shrink-0 text-xs capitalize">{resource.type}</span>
-          {resource.authType !== "none" ? (
-            <span className="badge badge-ghost shrink-0 text-xs capitalize">{resource.authType}</span>
-          ) : null}
-        </div>
-        <p className="truncate text-sm text-base-content/60">
-          {projectName ? `${projectName} / ` : ""}
-          {resource.username ? `${resource.username} @ ` : ""}
-          {resource.detail}
-        </p>
-      </div>
-      <div className="flex shrink-0 gap-1">
-        <button
-          className={clsx(
-            "btn btn-ghost h-9 min-h-9 w-9 rounded-md p-0",
-            resource.pinned && "text-warning",
-          )}
-          aria-label={resource.pinned ? `Unpin ${resource.name}` : `Pin ${resource.name}`}
-          onClick={() => onTogglePinned(resource)}
-        >
-          <Star size={16} fill={resource.pinned ? "currentColor" : "none"} />
-        </button>
-        {resource.encryptedSecret ? (
-          <button
-            className="btn btn-ghost h-9 min-h-9 w-9 rounded-md p-0"
-            aria-label={`Reveal secret for ${resource.name}`}
-            onClick={() => onRevealSecret(resource)}
-          >
-            <Eye size={16} />
-          </button>
-        ) : null}
-        <button
-          className="btn btn-ghost h-9 min-h-9 w-9 rounded-md p-0"
-          aria-label={`Open ${resource.name}`}
-          onClick={() => onActivate(resource)}
-        >
-          <ExternalLink size={16} />
-        </button>
-        <button
-          className="btn btn-ghost h-9 min-h-9 w-9 rounded-md p-0"
-          aria-label={`Edit ${resource.name}`}
-          onClick={() => onEdit(resource)}
-        >
-          <Pencil size={16} />
-        </button>
-        <button
-          className="btn btn-ghost h-9 min-h-9 w-9 rounded-md p-0 text-error"
-          aria-label={`Delete ${resource.name}`}
-          onClick={() => onDelete(resource)}
-        >
-          <Trash2 size={16} />
-        </button>
-      </div>
-    </div>
   );
 }
 

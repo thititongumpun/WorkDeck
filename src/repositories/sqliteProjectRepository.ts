@@ -11,6 +11,7 @@ import type {
   UpdateProjectInput,
   UpdateResourceInput,
 } from "../domain/workspace";
+import { normalizeProjectAccent, rowCount } from "./projectAccent";
 
 const DATABASE_URL = "sqlite:workdeck.db";
 
@@ -27,6 +28,7 @@ type ResourceRow = {
   id: string;
   project_id: string;
   name: string;
+  target: string;
   detail: string;
   type: ResourceType;
   pinned: number;
@@ -49,6 +51,10 @@ type SearchRow = {
   body: string;
 };
 
+type CountRow = {
+  project_count: number | string;
+};
+
 export class SQLiteProjectRepository implements ProjectRepository {
   private dbPromise: Promise<Database>;
 
@@ -62,7 +68,7 @@ export class SQLiteProjectRepository implements ProjectRepository {
       "SELECT id, name, description, status, accent, updated_at FROM projects ORDER BY updated_at DESC",
     );
     const resourceRows = await db.select<ResourceRow[]>(
-      "SELECT id, project_id, name, detail, type, pinned, auth_type, username, key_path, encrypted_secret, secret_iv, secret_salt, secret_kdf_iterations, created_at, updated_at FROM resources ORDER BY created_at ASC",
+      "SELECT id, project_id, name, target, detail, type, pinned, auth_type, username, key_path, encrypted_secret, secret_iv, secret_salt, secret_kdf_iterations, created_at, updated_at FROM resources ORDER BY created_at ASC",
     );
 
     return projectRows.map((project) => toProject(project, resourceRows));
@@ -80,7 +86,7 @@ export class SQLiteProjectRepository implements ProjectRepository {
     }
 
     const resourceRows = await db.select<ResourceRow[]>(
-      "SELECT id, project_id, name, detail, type, pinned, auth_type, username, key_path, encrypted_secret, secret_iv, secret_salt, secret_kdf_iterations, created_at, updated_at FROM resources WHERE project_id = $1 ORDER BY created_at ASC",
+      "SELECT id, project_id, name, target, detail, type, pinned, auth_type, username, key_path, encrypted_secret, secret_iv, secret_salt, secret_kdf_iterations, created_at, updated_at FROM resources WHERE project_id = $1 ORDER BY created_at ASC",
       [id],
     );
 
@@ -106,12 +112,13 @@ export class SQLiteProjectRepository implements ProjectRepository {
         const encryptedSecret = resource.encryptedSecret ?? null;
 
         await db.execute(
-          "INSERT INTO resources (id, project_id, type, name, detail, pinned, auth_type, username, key_path, encrypted_secret, secret_iv, secret_salt, secret_kdf_iterations, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)",
+          "INSERT INTO resources (id, project_id, type, name, target, detail, pinned, auth_type, username, key_path, encrypted_secret, secret_iv, secret_salt, secret_kdf_iterations, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)",
           [
             resource.id,
             project.id,
             resource.type,
             resource.name,
+            resource.target ?? "",
             resource.detail,
             resource.pinned ? 1 : 0,
             authType,
@@ -133,7 +140,8 @@ export class SQLiteProjectRepository implements ProjectRepository {
     const db = await this.dbPromise;
     const id = crypto.randomUUID();
     const now = new Date().toISOString();
-    const accent = "bg-emerald-500";
+    const countRows = await db.select<CountRow[]>("SELECT COUNT(*) AS project_count FROM projects");
+    const accent = normalizeProjectAccent(input.accent, rowCount(countRows[0]?.project_count));
 
     await db.execute(
       "INSERT INTO projects (id, name, description, status, accent, created_at, updated_at) VALUES ($1, $2, $3, 'active', $4, $5, $6)",
@@ -156,8 +164,8 @@ export class SQLiteProjectRepository implements ProjectRepository {
     const now = new Date().toISOString();
 
     await db.execute(
-      "UPDATE projects SET name = $1, description = $2, status = $3, updated_at = $4 WHERE id = $5",
-      [input.name, input.description, input.status, now, input.id],
+      "UPDATE projects SET name = $1, description = $2, status = $3, accent = $4, updated_at = $5 WHERE id = $6",
+      [input.name, input.description, input.status, normalizeProjectAccent(input.accent, 0), now, input.id],
     );
 
     const project = await this.getById(input.id);
@@ -181,12 +189,13 @@ export class SQLiteProjectRepository implements ProjectRepository {
     const now = new Date().toISOString();
 
     await db.execute(
-      "INSERT INTO resources (id, project_id, type, name, detail, pinned, auth_type, username, key_path, encrypted_secret, secret_iv, secret_salt, secret_kdf_iterations, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)",
+      "INSERT INTO resources (id, project_id, type, name, target, detail, pinned, auth_type, username, key_path, encrypted_secret, secret_iv, secret_salt, secret_kdf_iterations, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)",
       [
         id,
         input.projectId,
         input.type,
         input.name,
+        input.target,
         input.detail,
         input.pinned ? 1 : 0,
         input.authType ?? "none",
@@ -207,6 +216,7 @@ export class SQLiteProjectRepository implements ProjectRepository {
       projectId: input.projectId,
       type: input.type,
       name: input.name,
+      target: input.target,
       detail: input.detail,
       pinned: input.pinned ?? false,
       authType: input.authType ?? "none",
@@ -231,21 +241,22 @@ export class SQLiteProjectRepository implements ProjectRepository {
     }
 
     await db.execute(
-      "UPDATE resources SET type = $1, name = $2, detail = $3, pinned = COALESCE($4, pinned), auth_type = $5, username = $6, key_path = $7, encrypted_secret = $8, secret_iv = $9, secret_salt = $10, secret_kdf_iterations = $11, updated_at = $12 WHERE id = $13",
+      "UPDATE resources SET type = $1, name = $2, target = $3, detail = $4, pinned = COALESCE($5, pinned), auth_type = $6, username = $7, key_path = $8, encrypted_secret = $9, secret_iv = $10, secret_salt = $11, secret_kdf_iterations = $12, updated_at = $13 WHERE id = $14",
       [
-      input.type,
-      input.name,
-      input.detail,
-      input.pinned === undefined ? null : input.pinned ? 1 : 0,
-      input.authType ?? "none",
-      input.username ?? "",
-      input.keyPath ?? "",
-      input.encryptedSecret?.ciphertext ?? null,
-      input.encryptedSecret?.iv ?? null,
-      input.encryptedSecret?.salt ?? null,
-      input.encryptedSecret?.kdfIterations ?? null,
-      now,
-      input.id,
+        input.type,
+        input.name,
+        input.target,
+        input.detail,
+        input.pinned === undefined ? null : input.pinned ? 1 : 0,
+        input.authType ?? "none",
+        input.username ?? "",
+        input.keyPath ?? "",
+        input.encryptedSecret?.ciphertext ?? null,
+        input.encryptedSecret?.iv ?? null,
+        input.encryptedSecret?.salt ?? null,
+        input.encryptedSecret?.kdfIterations ?? null,
+        now,
+        input.id,
       ],
     );
     await db.execute("UPDATE projects SET updated_at = $1 WHERE id = $2", [now, rows[0].project_id]);
@@ -255,6 +266,7 @@ export class SQLiteProjectRepository implements ProjectRepository {
       projectId: rows[0].project_id,
       type: input.type,
       name: input.name,
+      target: input.target,
       detail: input.detail,
       pinned: input.pinned ?? false,
       authType: input.authType ?? "none",
@@ -325,6 +337,7 @@ function toResource(resource: ResourceRow): Resource {
     id: resource.id,
     projectId: resource.project_id,
     name: resource.name,
+    target: resource.target,
     detail: resource.detail,
     type: resource.type,
     pinned: toBoolean(resource.pinned),

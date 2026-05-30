@@ -14,6 +14,7 @@ export type Resource = {
   id: string;
   projectId: string;
   name: string;
+  target: string;
   detail: string;
   type: ResourceType;
   pinned: boolean;
@@ -38,12 +39,14 @@ export type Project = {
 export type CreateProjectInput = {
   name: string;
   description: string;
+  accent: string;
 };
 
 export type CreateResourceInput = {
   projectId: string;
   type: ResourceType;
   name: string;
+  target: string;
   detail: string;
   pinned?: boolean;
   authType?: AuthType;
@@ -57,12 +60,14 @@ export type UpdateProjectInput = {
   name: string;
   description: string;
   status: ProjectStatus;
+  accent: string;
 };
 
 export type UpdateResourceInput = {
   id: string;
   type: ResourceType;
   name: string;
+  target: string;
   detail: string;
   pinned?: boolean;
   authType?: AuthType;

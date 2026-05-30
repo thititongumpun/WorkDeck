@@ -9,6 +9,7 @@ import type {
   UpdateProjectInput,
   UpdateResourceInput,
 } from "../domain/workspace";
+import { normalizeProjectAccent } from "./projectAccent";
 
 const projects = [...seedProjects];
 
@@ -32,7 +33,7 @@ export class MemoryProjectRepository implements ProjectRepository {
       name: input.name,
       description: input.description,
       status: "active",
-      accent: nextAccent(projects.length),
+      accent: normalizeProjectAccent(input.accent, projects.length),
       updatedAt: now,
       resources: [],
     };
@@ -51,6 +52,7 @@ export class MemoryProjectRepository implements ProjectRepository {
     project.name = input.name;
     project.description = input.description;
     project.status = input.status;
+    project.accent = normalizeProjectAccent(input.accent, projects.length);
     project.updatedAt = new Date().toISOString();
     return project;
   }
@@ -75,6 +77,7 @@ export class MemoryProjectRepository implements ProjectRepository {
       id: crypto.randomUUID(),
       projectId: input.projectId,
       name: input.name,
+      target: input.target,
       detail: input.detail,
       type: input.type,
       pinned: input.pinned ?? false,
@@ -102,6 +105,7 @@ export class MemoryProjectRepository implements ProjectRepository {
     const now = new Date().toISOString();
     resource.type = input.type;
     resource.name = input.name;
+    resource.target = input.target;
     resource.detail = input.detail;
     resource.pinned = input.pinned ?? resource.pinned;
     resource.authType = input.authType ?? "none";
@@ -146,7 +150,7 @@ export class MemoryProjectRepository implements ProjectRepository {
       }
 
       for (const resource of project.resources) {
-        const resourceText = `${resource.name} ${resource.detail} ${resource.type}`.toLowerCase();
+        const resourceText = `${resource.name} ${resource.target} ${resource.detail} ${resource.type}`.toLowerCase();
 
         if (resourceText.includes(normalizedQuery)) {
           results.push({
@@ -154,7 +158,7 @@ export class MemoryProjectRepository implements ProjectRepository {
             entityId: resource.id,
             projectId: project.id,
             title: resource.name,
-            body: resource.detail,
+            body: [resource.target, resource.detail].filter(Boolean).join(" "),
           });
         }
       }
@@ -164,15 +168,12 @@ export class MemoryProjectRepository implements ProjectRepository {
   }
 }
 
-function nextAccent(index: number) {
-  return ["bg-emerald-500", "bg-sky-500", "bg-amber-500", "bg-rose-500", "bg-violet-500"][index % 5];
-}
-
 function normalizeProject(project: Project): Project {
   return {
     ...project,
     resources: project.resources.map((resource) => ({
       ...resource,
+      target: resource.target ?? "",
       pinned: resource.pinned ?? false,
       authType: resource.authType ?? "none",
       username: resource.username ?? "",

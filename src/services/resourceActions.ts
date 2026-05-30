@@ -4,13 +4,15 @@ import type { Resource } from "../domain/workspace";
 import { copyText } from "./appSettings";
 
 export async function activateResource(resource: Resource) {
+  const target = resource.target || resource.detail;
+
   if (resource.type === "url") {
-    await openResourceUrl(resource.detail);
+    await openResourceUrl(target);
     return;
   }
 
   if (resource.type === "file") {
-    await openResourcePath(resource.detail);
+    await openResourcePath(target);
     return;
   }
 
@@ -36,5 +38,5 @@ async function openResourcePath(value: string) {
 }
 
 async function copyResourceDetail(resource: Resource) {
-  await copyText(resource.detail || resource.name);
+  await copyText(resource.detail || resource.target || resource.name);
 }
