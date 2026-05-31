@@ -57,3 +57,36 @@ jobs:
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
+
+  patch-updater-metadata:
+    needs: publish-tauri
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download updater metadata
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release download "${GITHUB_REF_NAME}" --pattern latest.json --output latest.json
+
+      - name: Add Windows updater platform alias
+        run: |
+          jq '
+            .platforms as $platforms
+            | ($platforms["windows-x86_64-msvc"] // $platforms["windows-x86_64-pc-windows-msvc"]) as $windows
+            | if ($platforms["windows-x86_64"] == null and $windows == null) then
+                error("No Windows x86_64 updater platform found to alias")
+              elif $platforms["windows-x86_64"] == null then
+                .platforms["windows-x86_64"] = $windows
+              else
+                .
+              end
+          ' latest.json > latest.patched.json
+          mv latest.patched.json latest.json
+          jq -e '.platforms["windows-x86_64"]' latest.json > /dev/null
+
+      - name: Upload patched updater metadata
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${GITHUB_REF_NAME}" latest.json --clobber
