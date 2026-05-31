@@ -16,7 +16,7 @@ export type ResourceQuickView = {
   resource: Resource;
 };
 
-export const resourceTypes: ResourceType[] = ["file", "url", "server", "database", "command", "note"];
+export const resourceTypes: ResourceType[] = ["file", "url", "server", "command", "database", "note"];
 
 export function shouldShowCredentialFields(type: ResourceType) {
   return type === "server" || type === "database";

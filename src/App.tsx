@@ -9,10 +9,13 @@ import {
   Copy,
   Database,
   Download,
+  Eye,
+  EyeOff,
   FileText,
   Folder,
   Globe2,
   HardDrive,
+  KeyRound,
   MoreHorizontal,
   Moon,
   PanelLeft,
@@ -157,14 +160,18 @@ export function App() {
   const [quickViewResource, setQuickViewResource] = useState<ResourceQuickView | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState<{ title: string; message: string; onConfirm: () => void } | null>(null);
+  const [secretRevealResource, setSecretRevealResource] = useState<Resource | null>(null);
+  const [libraryResourceFilter, setLibraryResourceFilter] = useState<ResourceType | null>(null);
   const [theme, setTheme] = useState<ThemeMode>(() => readStoredTheme());
   const selectedProject = projects.find((project) => project.id === selectedProjectId) ?? projects[0];
   const displayedResources =
     selectedProject?.resources.filter((resource) => resourceFilter === "all" || resource.type === resourceFilter) ?? [];
   const activeNavigationItem = navigation.find((item) => item.id === activeSection) ?? navigation[0];
+  const selectedLibraryResourceType =
+    activeNavigationItem.resourceType ?? (activeSection === "resources" || activeSection === "pinned" ? libraryResourceFilter : null);
   const libraryResources = projects
     .flatMap((project) => project.resources.map((resource) => ({ project, resource })))
-    .filter(({ resource }) => !activeNavigationItem.resourceType || resource.type === activeNavigationItem.resourceType)
+    .filter(({ resource }) => !selectedLibraryResourceType || resource.type === selectedLibraryResourceType)
     .filter(({ resource }) => !activeNavigationItem.pinnedOnly || resource.pinned);
   const pinnedResources = projects
     .flatMap((project) => project.resources.map((resource) => ({ project, resource })))
@@ -289,24 +296,43 @@ export function App() {
       return;
     }
 
-    const masterPassword = window.prompt("Master password");
-
-    if (!masterPassword) {
-      return;
-    }
-
-    try {
-      const secret = await decryptSecret(resource.encryptedSecret, masterPassword);
-      window.prompt("Decrypted secret", secret);
-    } catch {
-      window.alert("Could not decrypt secret. Check the master password.");
-    }
+    setSecretRevealResource(resource);
   }
 
   function handleSelectSearchResult(result: SearchResult) {
     setSelectedProjectId(result.projectId);
     setActiveSection(result.entityType === "project" ? "projects" : "resources");
+    setLibraryResourceFilter(null);
     setSearchQuery("");
+  }
+
+  function handleNavigate(section: WorkspaceSection) {
+    setActiveSection(section);
+    setLibraryResourceFilter(null);
+  }
+
+  function handleSelectLibraryResourceType(type: ResourceType) {
+    const sectionByType: Partial<Record<ResourceType, WorkspaceSection>> = {
+      command: "commands",
+      database: "databases",
+      note: "notes",
+    };
+
+    if (activeSection === "pinned") {
+      setLibraryResourceFilter(type);
+      return;
+    }
+
+    const nextSection = sectionByType[type];
+
+    if (nextSection) {
+      setActiveSection(nextSection);
+      setLibraryResourceFilter(null);
+      return;
+    }
+
+    setActiveSection("resources");
+    setLibraryResourceFilter(type);
   }
 
   function handleSearchKeyDown(event: KeyboardEvent<HTMLInputElement>) {
@@ -348,7 +374,7 @@ export function App() {
             {navigation.map((item) => (
               <button
                 key={item.label}
-                onClick={() => setActiveSection(item.id)}
+                onClick={() => handleNavigate(item.id)}
                 className={clsx(
                   "flex h-10 w-full items-center gap-3 rounded-md px-3 text-sm font-medium transition",
                   activeSection === item.id
@@ -365,7 +391,7 @@ export function App() {
           <div className="px-5 py-3">
             <div className="mb-3 flex items-center justify-between">
               <span className="text-xs font-semibold uppercase tracking-wide text-base-content/50">Pinned</span>
-              <button className="btn btn-ghost btn-xs" aria-label="Manage pinned resources" onClick={() => setActiveSection("pinned")}>
+              <button className="btn btn-ghost btn-xs" aria-label="Manage pinned resources" onClick={() => handleNavigate("pinned")}>
                 <MoreHorizontal size={16} />
               </button>
             </div>
@@ -376,7 +402,7 @@ export function App() {
                     key={resource.id}
                     detail={`${project.name} / ${getResourceSummary(resource)}`}
                     name={resource.name}
-                    onClick={() => setActiveSection("pinned")}
+                    onClick={() => handleNavigate("pinned")}
                     type={resource.type}
                   />
                 ))
@@ -446,7 +472,7 @@ export function App() {
                   activeSection === item.id ? "btn-neutral" : "btn-ghost",
                 )}
                 key={item.id}
-                onClick={() => setActiveSection(item.id)}
+                onClick={() => handleNavigate(item.id)}
               >
                 <item.icon size={16} />
                 {item.label}
@@ -620,10 +646,11 @@ export function App() {
               onEdit={setEditingResource}
               onQuickView={(resource, projectName) => setQuickViewResource({ projectName, resource })}
               onRevealSecret={handleRevealSecret}
+              onSelectResourceType={handleSelectLibraryResourceType}
               onTogglePinned={handleTogglePinned}
               projects={projects}
               pinnedOnly={Boolean(activeNavigationItem.pinnedOnly)}
-              resourceType={activeNavigationItem.resourceType}
+              selectedResourceType={selectedLibraryResourceType}
               title={activeNavigationItem.label}
             />
           )}
@@ -644,7 +671,7 @@ export function App() {
         project={editingProject}
       />
       <CreateResourceDialog
-        defaultType={activeNavigationItem.resourceType ?? "file"}
+        defaultType={selectedLibraryResourceType ?? activeNavigationItem.resourceType ?? "file"}
         isOpen={isCreateResourceOpen && Boolean(selectedProject)}
         isSaving={addResource.isPending}
         error={addResource.error instanceof Error ? addResource.error.message : null}
@@ -682,6 +709,10 @@ export function App() {
           await confirmDialog?.onConfirm();
           setConfirmDialog(null);
         }}
+      />
+      <SecretRevealDialog
+        onClose={() => setSecretRevealResource(null)}
+        resource={secretRevealResource}
       />
     </main>
   );
@@ -1351,6 +1382,141 @@ function ConfirmDialog({
       </div>
       <form className="modal-backdrop" method="dialog">
         <button onClick={onCancel} type="button">close</button>
+      </form>
+    </dialog>
+  );
+}
+
+function SecretRevealDialog({ resource, onClose }: { resource: Resource | null; onClose: () => void }) {
+  const [masterPassword, setMasterPassword] = useState("");
+  const [secret, setSecret] = useState("");
+  const [error, setError] = useState("");
+  const [copyStatus, setCopyStatus] = useState("");
+  const [isDecrypting, setIsDecrypting] = useState(false);
+  const [isSecretVisible, setIsSecretVisible] = useState(false);
+
+  useEffect(() => {
+    if (!resource) {
+      return;
+    }
+
+    setMasterPassword("");
+    setSecret("");
+    setError("");
+    setCopyStatus("");
+    setIsDecrypting(false);
+    setIsSecretVisible(false);
+  }, [resource]);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!resource?.encryptedSecret || !masterPassword) {
+      return;
+    }
+
+    setIsDecrypting(true);
+    setError("");
+    setCopyStatus("");
+
+    try {
+      setSecret(await decryptSecret(resource.encryptedSecret, masterPassword));
+      setIsSecretVisible(true);
+    } catch {
+      setSecret("");
+      setError("Could not decrypt secret. Check the master password.");
+    } finally {
+      setIsDecrypting(false);
+    }
+  }
+
+  async function handleCopySecret() {
+    if (!secret) {
+      return;
+    }
+
+    await copyText(secret);
+    setCopyStatus("Copied");
+  }
+
+  if (!resource) {
+    return null;
+  }
+
+  return (
+    <dialog className="modal modal-open">
+      <div className="modal-box max-w-md rounded-lg">
+        <div className="mb-5 flex items-start gap-3">
+          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
+            <KeyRound size={20} />
+          </span>
+          <div className="min-w-0">
+            <h3 className="truncate text-lg font-semibold">Reveal secret</h3>
+            <p className="mt-1 truncate text-sm text-base-content/60">{resource.name}</p>
+          </div>
+        </div>
+
+        <form className="grid gap-4" onSubmit={handleSubmit}>
+          <Field label="Master password">
+            <input
+              autoFocus
+              className="input input-bordered w-full rounded-md"
+              onChange={(event) => setMasterPassword(event.target.value)}
+              type="password"
+              value={masterPassword}
+            />
+          </Field>
+
+          {error ? (
+            <p className="flex items-center gap-2 rounded-md bg-error/10 px-3 py-2 text-sm text-error">
+              <AlertTriangle size={16} />
+              {error}
+            </p>
+          ) : null}
+
+          {secret ? (
+            <Field label="Secret">
+              <div className="join w-full">
+                <input
+                  className="input join-item input-bordered min-w-0 flex-1 rounded-l-md font-mono text-sm"
+                  readOnly
+                  type={isSecretVisible ? "text" : "password"}
+                  value={secret}
+                />
+                <button
+                  aria-label={isSecretVisible ? "Hide secret" : "Show secret"}
+                  className="btn join-item btn-outline h-12 min-h-12 w-12 rounded-none p-0"
+                  onClick={() => setIsSecretVisible((current) => !current)}
+                  type="button"
+                >
+                  {isSecretVisible ? <EyeOff size={17} /> : <Eye size={17} />}
+                </button>
+                <button
+                  aria-label="Copy secret"
+                  className="btn join-item btn-outline h-12 min-h-12 w-12 rounded-r-md p-0"
+                  onClick={handleCopySecret}
+                  type="button"
+                >
+                  <Copy size={17} />
+                </button>
+              </div>
+            </Field>
+          ) : null}
+
+          <div className="modal-action items-center">
+            {copyStatus ? <span className="mr-auto text-sm text-success">{copyStatus}</span> : null}
+            <button className="btn btn-ghost rounded-md" disabled={isDecrypting} onClick={onClose} type="button">
+              Close
+            </button>
+            <button className="btn btn-primary rounded-md" disabled={!masterPassword || isDecrypting} type="submit">
+              {isDecrypting ? <span className="loading loading-spinner loading-sm" /> : <KeyRound size={17} />}
+              Unlock
+            </button>
+          </div>
+        </form>
+      </div>
+      <form className="modal-backdrop" method="dialog">
+        <button onClick={onClose} type="button">close</button>
       </form>
     </dialog>
   );

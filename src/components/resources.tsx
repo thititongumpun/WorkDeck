@@ -33,10 +33,11 @@ export function ResourceLibraryView({
   onEdit,
   onQuickView,
   onRevealSecret,
+  onSelectResourceType,
   onTogglePinned,
   pinnedOnly,
   projects,
-  resourceType,
+  selectedResourceType,
   title,
 }: {
   isError: boolean;
@@ -48,18 +49,24 @@ export function ResourceLibraryView({
   onEdit: (resource: Resource) => void;
   onQuickView: (resource: Resource, projectName?: string) => void;
   onRevealSecret: (resource: Resource) => void;
+  onSelectResourceType: (type: ResourceType) => void;
   onTogglePinned: (resource: Resource) => void;
   pinnedOnly: boolean;
   projects: Project[];
-  resourceType: ResourceType | null;
+  selectedResourceType: ResourceType | null;
   title: string;
 }) {
   const totalResources = projects.reduce((sum, project) => sum + project.resources.length, 0);
   const resourceCounts = resourceTypes.map((type) => ({
     type,
-    count: projects.reduce((sum, project) => sum + project.resources.filter((resource) => resource.type === type).length, 0),
+    count: projects.reduce(
+      (sum, project) =>
+        sum +
+        project.resources.filter((resource) => resource.type === type && (!pinnedOnly || resource.pinned)).length,
+      0,
+    ),
   }));
-  const Icon = resourceType ? resourceIcons[resourceType] : Box;
+  const Icon = selectedResourceType ? resourceIcons[selectedResourceType] : Box;
 
   return (
     <div className="min-h-0 flex-1 overflow-auto">
@@ -74,8 +81,8 @@ export function ResourceLibraryView({
             <p className="mt-2 max-w-2xl text-base text-base-content/65">
               {pinnedOnly
                 ? `${items.length} pinned ${items.length === 1 ? "resource" : "resources"} across ${projects.length} projects`
-                : resourceType
-                  ? `${items.length} ${resourceType} ${items.length === 1 ? "resource" : "resources"} across ${projects.length} projects`
+                : selectedResourceType
+                  ? `${items.length} ${selectedResourceType} ${items.length === 1 ? "resource" : "resources"} across ${projects.length} projects`
                   : `${totalResources} resources across ${projects.length} projects`}
             </p>
           </div>
@@ -90,19 +97,21 @@ export function ResourceLibraryView({
             const CountIcon = resourceIcons[type];
 
             return (
-              <div
+              <button
                 className={clsx(
-                  "rounded-lg border bg-base-100 p-3",
-                  resourceType === type ? "border-primary/40 bg-primary/10" : "border-base-300",
+                  "rounded-lg border bg-base-100 p-3 text-left transition hover:border-primary/40 hover:bg-primary/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+                  selectedResourceType === type ? "border-primary/40 bg-primary/10" : "border-base-300",
                 )}
                 key={type}
+                onClick={() => onSelectResourceType(type)}
+                type="button"
               >
                 <div className="flex items-center gap-2 text-xs font-medium capitalize text-base-content/60">
                   <CountIcon size={15} />
                   {type}
                 </div>
                 <div className="mt-2 text-lg font-semibold">{count}</div>
-              </div>
+              </button>
             );
           })}
         </div>
@@ -133,7 +142,7 @@ export function ResourceLibraryView({
             ))
           ) : (
             <div className="px-4 py-10 text-center">
-              <h4 className="font-medium">No {pinnedOnly ? "pinned resources" : resourceType ?? "resources"} yet</h4>
+              <h4 className="font-medium">No {pinnedOnly ? "pinned resources" : selectedResourceType ?? "resources"} yet</h4>
               <p className="mt-1 text-sm text-base-content/60">
                 {projects.length > 0
                   ? pinnedOnly
